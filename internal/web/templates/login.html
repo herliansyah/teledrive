@@ -101,7 +101,21 @@
                 </div>
             </div>
 
-            <button type="submit" class="btn btn-primary" id="btn-submit" style="width: 100%; padding: 11px 16px; font-size: 0.95rem;">
+            <div class="disclaimer-box" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: var(--radius-sm); padding: 12px 14px; font-size: 0.8rem; color: var(--text-secondary); line-height: 1.45;">
+                <div style="display: flex; align-items: center; gap: 6px; font-weight: 600; color: var(--warning); margin-bottom: 6px;">
+                    <svg class="icon icon-sm" viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <span>Disclaimer &amp; Batasan Risiko</span>
+                </div>
+                <div style="margin-bottom: 8px; font-size: 0.775rem;">
+                    Disarankan menggunakan <strong>akun Telegram sekunder/cadangan</strong>. Segala risiko akun (limitasi ToS, <em>banned</em>, kehilangan data) sepenuhnya adalah <strong>tanggung jawab pribadi pengguna</strong>.
+                </div>
+                <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; user-select: none; color: var(--text-primary); font-size: 0.775rem; font-weight: 500; padding-top: 8px; border-top: 1px dashed rgba(245, 158, 11, 0.25);">
+                    <input type="checkbox" id="disclaimer-check" name="disclaimer_agreed" value="1" required style="margin-top: 2px; accent-color: var(--primary); cursor: pointer;">
+                    <span>Saya memahami risiko dan setuju bahwa segala risiko penggunaan adalah tanggung jawab saya sendiri.</span>
+                </label>
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="btn-submit" style="width: 100%; padding: 11px 16px; font-size: 0.95rem; opacity: 0.5; cursor: not-allowed;" disabled>
                 <span id="btn-text">Sign In</span>
             </button>
         </form>
@@ -125,11 +139,46 @@
             }
         }
 
-        document.getElementById("login-form").addEventListener("submit", function() {
-            const btn = document.getElementById("btn-submit");
-            const btnText = document.getElementById("btn-text");
-            btn.disabled = true;
-            btnText.innerText = "Authenticating...";
+        const disclaimerCheck = document.getElementById("disclaimer-check");
+        const btnSubmit = document.getElementById("btn-submit");
+
+        function updateSubmitState() {
+            if (!disclaimerCheck || !btnSubmit) return;
+            if (disclaimerCheck.checked) {
+                btnSubmit.disabled = false;
+                btnSubmit.style.opacity = "1";
+                btnSubmit.style.cursor = "pointer";
+            } else {
+                btnSubmit.disabled = true;
+                btnSubmit.style.opacity = "0.5";
+                btnSubmit.style.cursor = "not-allowed";
+            }
+        }
+
+        if (disclaimerCheck) {
+            if (localStorage.getItem("teledrive_disclaimer_accepted") === "true") {
+                disclaimerCheck.checked = true;
+            }
+            updateSubmitState();
+
+            disclaimerCheck.addEventListener("change", function() {
+                updateSubmitState();
+                if (disclaimerCheck.checked) {
+                    localStorage.setItem("teledrive_disclaimer_accepted", "true");
+                } else {
+                    localStorage.removeItem("teledrive_disclaimer_accepted");
+                }
+            });
+        }
+
+        document.getElementById("login-form").addEventListener("submit", function(e) {
+            if (disclaimerCheck && !disclaimerCheck.checked) {
+                e.preventDefault();
+                disclaimerCheck.focus();
+                return;
+            }
+            btnSubmit.disabled = true;
+            document.getElementById("btn-text").innerText = "Authenticating...";
         });
     </script>
 </body>

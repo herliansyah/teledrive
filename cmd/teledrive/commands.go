@@ -28,6 +28,18 @@ func runLogin(cfg *app.Config) {
 
 	reader := bufio.NewReader(os.Stdin)
 
+	fmt.Println("\n[⚠️  DISCLAIMER & USAGE NOTICE]")
+	fmt.Println("• Disarankan menggunakan akun Telegram SEKUNDER/CADANGAN, bukan akun utama Anda.")
+	fmt.Println("• Segala risiko penggunaan (limitasi ToS, banned Telegram, kehilangan data) sepenuhnya adalah tanggung jawab pribadi pengguna.")
+	fmt.Println("• Strongly recommended to use a dedicated secondary account. All risks are your personal responsibility.")
+	fmt.Print("\nApakah Anda memahami & menyetujui disclaimer ini? / Do you agree? [y/N]: ")
+	consent, _ := reader.ReadString('\n')
+	if consent = strings.TrimSpace(strings.ToLower(consent)); consent != "y" && consent != "yes" {
+		fmt.Println("Login dibatalkan / Login aborted. Persetujuan disclaimer diperlukan.")
+		return
+	}
+	fmt.Println()
+
 	// Check DB if not in config/env
 	if appID == 0 {
 		if stored, err := database.GetSetting("telegram_app_id"); err == nil && stored != "" {

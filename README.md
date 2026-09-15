@@ -25,6 +25,13 @@
 
 **TeleDrive** is a lightweight, single-binary personal cloud storage bridge. It uses Telegram's distributed cloud infrastructure as an object store via native **MTProto** (`gotd/td`), providing up to **2 GB (Free accounts)** or **4 GB (Premium accounts)** per file transfer, without intermediate disk spooling on your server.
 
+> [!WARNING]
+> **Disclaimer & Safe Usage Notice**
+> - **Use a Secondary Account**: It is strongly recommended to use a secondary or dedicated Telegram account rather than your primary personal account.
+> - **Use at Your Own Risk**: TeleDrive is provided for educational and personal use "as is". All risks—including account limitations, temporary or permanent bans by Telegram, or data loss—are solely the user's personal responsibility.
+> - **Telegram Terms of Service**: While TeleDrive incorporates safety mechanisms (sequential queues, delay pacing, and automated flood backoff), heavy cloud storage usage may conflict with Telegram's Terms of Service.
+> - **Not Affiliated with Telegram**: This project is independent and open-source. It is not affiliated with, endorsed, or sponsored by Telegram FZ-LLC.
+
 ### ✨ Key Features
 
 - **🎨 Modern Zero-Build Web Interface**:
@@ -172,6 +179,13 @@ Developed and maintained by **Herliansyah**:
 ## 🇮🇩 Panduan Bahasa Indonesia
 
 **TeleDrive** adalah jembatan penyimpanan awan (*cloud storage*) berbasis Go (single binary) yang memanfaatkan infrastruktur Telegram sebagai backend penyimpanan melalui protokol resmi **MTProto** (`gotd/td`). Dengan TeleDrive, Anda dapat menikmati kapasitas upload hingga **2 GB (akun reguler)** atau **4 GB (akun Telegram Premium)** per file dengan tampilan web mirip Google Drive.
+
+> [!WARNING]
+> **Penafian & Batasan Tanggung Jawab (Disclaimer)**
+> - **Gunakan Akun Sekunder / Cadangan**: Sangat disarankan untuk menggunakan akun Telegram sekunder (khusus) dan bukan akun pribadi utama Anda, guna menghindari dampak negatif jika terjadi pembatasan akun.
+> - **Segala Risiko Ditanggung Pribadi**: Aplikasi ini disediakan untuk keperluan edukasi dan personal "sebagaimana adanya" (*as is*). Segala risiko akibat penggunaan TeleDrive—termasuk limitasi akun, pemblokiran/penangguhan (*banned*) oleh Telegram, pembatasan API, maupun kehilangan data—sepenuhnya merupakan tanggung jawab pribadi pengguna.
+> - **Ketentuan Layanan (ToS) Telegram**: Meskipun TeleDrive dilengkapi fitur *Safe Mode* (antrean sekuensial tunggal, jeda adaptif, dan penanganan *flood wait* otomatis), penggunaan Telegram sebagai tempat penyimpanan file berkapasitas besar berpotensi bertentangan dengan Ketentuan Layanan Telegram.
+> - **Bukan Produk Resmi Telegram**: TeleDrive adalah proyek sumber terbuka independen dan tidak terafiliasi, didukung, maupun disponsori oleh Telegram FZ-LLC.
 
 ### 🎯 Fitur Unggulan
  
