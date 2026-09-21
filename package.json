@@ -1,6 +1,6 @@
 {
   "name": "teledrive",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "High-Capacity Cloud Storage Powered by Telegram MTProto Infrastructure",
   "main": "bin/teledrive.js",
   "bin": {

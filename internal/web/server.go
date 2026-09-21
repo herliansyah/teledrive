@@ -121,6 +121,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/trash/files/{id}", s.authMiddleware(s.handleHardDeleteFile))
 	s.mux.HandleFunc("DELETE /api/trash", s.authMiddleware(s.handleEmptyTrash))
 
+	// Changelog & System Updates
+	s.mux.HandleFunc("GET /api/changelog", s.handleGetChangelog)
+	s.mux.HandleFunc("GET /api/system/update", s.authMiddleware(s.handleCheckUpdate))
+	s.mux.HandleFunc("POST /api/system/update", s.authMiddleware(s.handleApplyUpdate))
+
 	// Root OPTIONS for Windows WebClient discovery
 	s.mux.HandleFunc("OPTIONS /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("DAV", "1, 2")

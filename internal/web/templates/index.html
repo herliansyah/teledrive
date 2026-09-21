@@ -63,6 +63,12 @@
                 </button>
                 <input type="file" id="file-input" multiple style="display: none;">
 
+                <button class="btn btn-secondary" style="width: 100%;" onclick="document.getElementById('folder-input').click()">
+                    <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><polyline points="12 11 12 17"/><polyline points="9 14 12 11 15 14"/></svg>
+                    <span>Upload Folder</span>
+                </button>
+                <input type="file" id="folder-input" webkitdirectory directory multiple style="display: none;">
+
                 <button class="btn btn-secondary" style="width: 100%;" onclick="createFolderPrompt()">
                     <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg>
                     <span>New Folder</span>
@@ -96,7 +102,17 @@
             </div>
 
             <div style="padding: 10px 4px 4px; font-size: 0.725rem; color: var(--text-muted); line-height: 1.5; border-top: 1px solid var(--border-subtle);">
-                <div><strong>TeleDrive v1.2.0</strong> &bull; MIT License</div>
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <div>
+                        <a href="javascript:void(0)" onclick="openChangelogModal()" style="color: var(--primary); text-decoration: none; font-weight: 600;" title="Click to view Changelog">TeleDrive v1.5.0</a> &bull; MIT License
+                    </div>
+                </div>
+                <div id="sidebar-update-badge" style="display: none; margin-top: 4px;">
+                    <button class="btn btn-primary" style="padding: 3px 8px; font-size: 0.7rem; width: 100%; border-radius: 4px; display: flex; align-items: center; justify-content: center; gap: 4px;" onclick="openUpdateModal()">
+                        <svg class="icon icon-sm" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        <span id="sidebar-update-text">Update Available</span>
+                    </button>
+                </div>
                 <div>Created by <a href="https://github.com/herliansyah" target="_blank" rel="noopener noreferrer" style="color: var(--primary); text-decoration: none; font-weight: 500;">Herliansyah</a></div>
                 <div><a href="https://github.com/herliansyah/teledrive" target="_blank" rel="noopener noreferrer" style="color: var(--text-muted); text-decoration: underline;">GitHub Repository</a></div>
             </div>
@@ -111,7 +127,7 @@
                         <svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                     </div>
                     <div>
-                        <span style="font-weight: 600; color: var(--text-primary);">Drag & drop files here</span>
+                        <span style="font-weight: 600; color: var(--text-primary);">Drag & drop files or folders here</span>
                         <span style="color: var(--text-muted);">or browse from your device</span>
                     </div>
                 </div>
@@ -355,7 +371,7 @@
             <div class="form-group">
                 <label class="form-label">Link Expiration</label>
                 <select id="share-expiry" class="form-input" style="cursor: pointer;" onchange="handleShareExpiryChange()">
-                    <option value="0" selected>Never expires (Default - like Google Drive)</option>
+                    <option value="0" selected>Never expires</option>
                     <option value="1">1 day</option>
                     <option value="7">7 days</option>
                     <option value="30">30 days</option>
@@ -564,6 +580,96 @@
             <button class="btn btn-secondary" onclick="deselectAll()" style="font-size: 0.8rem; padding: 5px 12px;">
                 <span>Deselect All</span>
             </button>
+        </div>
+    </div>
+
+    <!-- Upload Conflict Modal -->
+    <div id="conflict-modal" class="modal-overlay">
+        <div class="modal-dialog" style="max-width: 440px;">
+            <div class="modal-header">
+                <h3 class="modal-title">
+                    <svg class="icon icon-sm" style="color: #f59e0b;" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <span>File Already Exists</span>
+                </h3>
+            </div>
+            <p id="conflict-message" style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.5; word-break: break-all;">
+                An item with this name already exists in this folder.
+            </p>
+            <div style="margin-top: 4px; margin-bottom: 6px;">
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 0.825rem; color: var(--text-muted); cursor: pointer;">
+                    <input type="checkbox" id="conflict-apply-all" style="cursor: pointer;">
+                    <span>Apply to all remaining conflicts</span>
+                </label>
+            </div>
+            <div class="modal-footer" style="flex-direction: column; gap: 8px; width: 100%;">
+                <div style="display: flex; gap: 8px; width: 100%;">
+                    <button class="btn btn-primary" style="flex: 1;" onclick="resolveConflict('replace')">Replace</button>
+                    <button class="btn btn-secondary" style="flex: 1;" onclick="resolveConflict('keep_both')">Keep Both</button>
+                </div>
+                <button class="btn btn-secondary" style="width: 100%; font-size: 0.8rem;" onclick="resolveConflict('skip')">Skip File</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Changelog Modal -->
+    <div id="changelog-modal" class="modal-overlay" onclick="if(event.target===this) closeChangelogModal()">
+        <div class="modal-dialog" style="max-width: 640px; max-height: 85vh; display: flex; flex-direction: column;">
+            <div class="modal-header">
+                <h3 class="modal-title">
+                    <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                    <span>TeleDrive Changelog</span>
+                </h3>
+                <button class="btn-icon" onclick="closeChangelogModal()">
+                    <svg class="icon" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+            </div>
+            <div id="changelog-body" class="preview-container" style="flex: 1; overflow-y: auto; padding: 16px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); font-size: 0.85rem; line-height: 1.6; color: var(--text-secondary); max-height: 60vh;">
+                Loading changelog...
+            </div>
+            <div class="modal-footer" style="justify-content: space-between;">
+                <span id="changelog-version-tag" style="font-size: 0.75rem; color: var(--text-muted);">Installed: v1.5.0</span>
+                <button class="btn btn-secondary" onclick="closeChangelogModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Update Modal -->
+    <div id="update-modal" class="modal-overlay">
+        <div class="modal-dialog" style="max-width: 480px;">
+            <div class="modal-header">
+                <h3 class="modal-title">
+                    <svg class="icon icon-sm" style="color: var(--primary);" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    <span>TeleDrive Software Update</span>
+                </h3>
+                <button class="btn-icon" onclick="closeUpdateModal()">
+                    <svg class="icon" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+            </div>
+            <div id="update-modal-content">
+                <p id="update-summary" style="font-size: 0.9rem; color: var(--text-primary); margin-bottom: 8px;">
+                    A new version of TeleDrive is available!
+                </p>
+                <div style="background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px;">
+                        <span style="color: var(--text-muted);">Installed Version:</span>
+                        <strong id="update-current-ver">v1.5.0</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
+                        <span style="color: var(--text-muted);">Latest Version:</span>
+                        <strong id="update-latest-ver" style="color: var(--primary);">-</strong>
+                    </div>
+                </div>
+                <div id="update-release-notes" style="max-height: 150px; overflow-y: auto; font-size: 0.8rem; color: var(--text-secondary); background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 8px 12px; margin-bottom: 12px; white-space: pre-wrap;">
+                </div>
+            </div>
+            <div id="update-progress-container" style="display: none; text-align: center; padding: 16px 0;">
+                <p id="update-status-text" style="font-size: 0.85rem; font-weight: 600; color: var(--primary);">Updating TeleDrive and restarting server...</p>
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 6px;">Please wait while the page reconnects automatically.</p>
+            </div>
+            <div class="modal-footer" id="update-modal-footer">
+                <button class="btn btn-secondary" onclick="closeUpdateModal()">Later</button>
+                <button class="btn btn-primary" id="btn-apply-update" onclick="applyUpdate()">Update Now</button>
+            </div>
         </div>
     </div>
 

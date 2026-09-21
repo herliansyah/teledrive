@@ -100,3 +100,15 @@ _Avoid_: Chroot, sandbox mode, restricted browsing
 A single batched API request performing state transitions (such as moving to a target folder or staging in Virtual Trash) across multiple virtual files and Virtual Folders simultaneously.
 _Avoid_: Batch job, multi-action, mass edit
 
+**Recursive Folder Upload**:
+The traversal and transmission of a local filesystem directory tree that dynamically recreates nested Virtual Folders in the database and streams contained files to the Storage Channel.
+_Avoid_: Directory push, folder sync, tree dump
+
+**Upload Conflict Strategy**:
+The resolution policy (Replace, Keep Both with numerical suffix, or Skip) applied when an incoming file or Virtual Folder name collides with an existing item under the same parent Virtual Folder.
+_Avoid_: Collision handler, duplication rule, overwrite mode
+
+**In-App Self-Update**:
+The automated check against the official release repository that downloads the matching platform binary, safely substitutes the live executable, and triggers a graceful process restart.
+_Avoid_: OTA update, app patch, live upgrade
+

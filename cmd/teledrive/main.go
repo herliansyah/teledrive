@@ -26,7 +26,7 @@ func main() {
 
 	switch os.Args[1] {
 	case "version", "--version", "-v":
-		fmt.Println("TeleDrive v1.4.0")
+		fmt.Printf("TeleDrive v%s\n", app.Version)
 		fmt.Println("Created by Herliansyah (https://github.com/herliansyah)")
 		fmt.Println("Licensed under the MIT License")
 		fmt.Println("Repository: https://github.com/herliansyah/teledrive")
@@ -44,6 +44,8 @@ func main() {
 		runBackup(cfg)
 	case "restore":
 		runRestore(cfg)
+	case "update":
+		runUpdate(cfg)
 	case "help", "--help", "-h":
 		printUsage()
 	default:
@@ -60,11 +62,12 @@ func printUsage() {
 Commands:
   login     Authenticate your Telegram account via MTProto CLI wizard
   server    Start the web dashboard and streaming server
-  upload    Upload a file to TeleDrive storage (e.g. teledrive upload ./video.mp4)
+  upload    Upload a file or folder to TeleDrive storage (e.g. teledrive upload ./folder)
   download  Download a file from TeleDrive (e.g. teledrive download <file_id>)
   list      List files and folders (e.g. teledrive list)
   backup    Export SQLite snapshot and upload to Telegram Storage Channel
   restore   Restore SQLite database from Telegram Storage Channel
+  update    Check and update TeleDrive to the latest version
   version   Show TeleDrive version`)
 }
 
