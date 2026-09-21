@@ -100,4 +100,16 @@ This roadmap outlines the implementation phases for TeleDrive. In accordance wit
 * **Runnable Verification**:
   - Self-check suite verifying: (1) token forgery rejection, (2) soft-delete and restore cycle without Storage Channel message loss, (3) byte-for-byte encrypted round-trip upload and HTTP 206 range-seeking, and (4) WebDAV PROPFIND/GET/PUT integration.
 
+---
 
+## Milestone 8: Virtual Folder Sharing, Extended Expiry & Bulk Drive Operations (Completed)
+
+**Goal**: Extend TeleDrive sharing and drive management with full virtual folder sharing, guest jail boundary traversal, granular share expiration presets, and desktop-grade bulk file operations.
+
+* **Key Deliverables**:
+  - **Fase 1: Extended Share Link Expiry**: Default share link duration to "Never expires" (`expires_at = NULL`), with quick presets (1h, 1d, 7d, 90d, 1y) and custom date/time calendar picker.
+  - **Fase 2: Virtual Folder Sharing & Jailed Guest Traversal**: Add support for sharing whole folders (`folder_id` in `share_links`), rendering dedicated guest folder view (`share.html`), breadcrumb navigation, and strictly jailed subfolder traversal (`GET /s/{token}?folder_id=...` and `/s/{token}/subfolder/{subfolder_id}`) preventing boundary escape.
+  - **Fase 3: Native HTML5 Drag-and-Drop**: Enable dragging files and folders directly into folder cards, table rows, and breadcrumb trails with instant move API calls.
+  - **Fase 4: Multi-Select & Bulk Operations**: Checkbox multi-select, floating bulk action bar, batch move modal (`POST /api/batch/move`), batch trash (`POST /api/batch/trash`), and keyboard shortcuts (`F2` rename, `Delete` trash).
+* **Runnable Verification**:
+  - Full automated integration suite passing (`go test ./...`), verifying folder share guest isolation, batch move and trash endpoints, and boundary-enforced subfolder downloads.

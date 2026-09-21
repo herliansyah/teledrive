@@ -43,10 +43,17 @@
   - Shared Links Management view in dashboard to audit active links, copy URLs, review downloads, and revoke access.
   - Expanded media and code viewer: seekable video (HTTP 206), audio, image, PDF, and syntax/plain text viewer for code files (`.txt`, `.md`, `.json`, `.go`, `.py`, `.log`).
   - Built-in **Mobile QR Code Generator** on public share links for frictionless smartphone handoff.
-- **📁 Virtual File System**: Full hierarchical folder management (create, rename, move with cycle prevention, delete, search) backed by SQLite with WAL mode.
+- **📁 Virtual File System & Organization**:
+  - Full hierarchical folder management backed by SQLite with WAL mode.
+  - Native HTML5 **Drag-and-Drop** to move files and folders directly into folders or breadcrumb trails.
+  - **Multi-Select & Bulk Operations**: Select multiple items with floating action bar for batch move and batch trash.
+  - Interactive "Move to..." destination picker dialog and keyboard shortcuts (`F2` to rename, `Delete` to trash).
 - **⚡ Resumable Chunked Upload**: Browser slices files into 5 MB chunks and streams them directly into 512 KB MTProto parts with zero VPS disk wear.
 - **🎬 Instant Media Streaming (HTTP 206 Range)**: Stream and seek large videos, audio, images, and PDFs in real-time without downloading the complete file first.
-- **🔗 Secure Public Share Links**: Generate public links (`/s/:token`) with optional bcrypt password protection and automatic expiration timers.
+- **🔗 Secure Public Share Links & Folder Sharing**:
+  - Share individual files or entire **Virtual Folders** (`/s/:token`) with secure jailed guest traversal and in-folder file streaming/downloads.
+  - Flexible expiration options (Default "Never expires", 90 days, 1 year presets, or custom date/time picker).
+  - Optional bcrypt password protection and built-in **Mobile QR Code Generator**.
 - **🛡️ Primary Account Safe Mode (Strict Telegram ToS Compliance)**:
   - Realistic official desktop client telemetry fingerprinting (`PC 64bit`, `Linux/x86_64`, `AppVersion 5.0.0`).
   - Strict sequential single-worker queue (concurrency = 1) mimicking human desktop usage.
@@ -204,10 +211,17 @@ Developed and maintained by **Herliansyah**:
   - Tab Manajemen Shared Links di dashboard untuk memantau, menyalin URL, dan mencabut (*revoke*) link berbagi aktif.
   - Penampil pratinjau media dan dokumen teks/kode (`.txt`, `.md`, `.json`, `.go`, `.py`, dll).
   - Fitur **QR Code Generator** pada link publik untuk unduhan instan langsung dari smartphone.
-- **Struktur Folder Virtual**: Mengatur hierarki folder, memindahkan file (*move* dengan proteksi siklus), rename, hapus permanen, dan pencarian cepat berbasis SQLite WAL.
+- **Struktur Folder Virtual & Pengorganisasian**:
+  - Pengelolaan hierarki folder virtual berbasis SQLite WAL.
+  - Fitur **Drag-and-Drop** berkas dan folder langsung ke baris/kartu folder atau ke *breadcrumb trail*.
+  - **Multi-Pilih & Operasi Massal (Bulk Operations)**: Pilih banyak file/folder dengan bilah aksi melayang (*floating action bar*) untuk pemindahan massal (*batch move*) dan penghapusan massal (*batch trash*).
+  - Dialog interaktif "Move to..." serta pintasan keyboard (`F2` untuk ganti nama, `Delete` untuk buang ke trash).
 - **Upload Chunked Resumable**: File dipotong menjadi chunk 5MB di browser dan dialirkan langsung ke part 512KB MTProto tanpa memenuhi disk server VPS.
 - **Streaming Media Langsung (HTTP 206)**: Menonton video besar, memutar audio, atau membuka dokumen PDF langsung di browser tanpa perlu mengunduh seluruh file terlebih dahulu.
-- **Link Berbagi Publik (Share Link)**: Buat link publik dengan proteksi password (bcrypt) dan masa berlaku (*expiration timer*).
+- **Link Berbagi Publik & Berbagi Folder Virtual**:
+  - Bagikan berkas individual maupun seluruh **Folder Virtual** (`/s/:token`) dengan penjelajahan subfolder guest yang terisolasi (*jailed*) serta streaming dan unduh berkas di dalamnya.
+  - Opsi masa kedaluwarsa fleksibel (default Selamanya, preset 90 hari / 1 tahun, serta pemilih tanggal kustom).
+  - Proteksi password (bcrypt) opsional dan fitur **QR Code Generator** terintegrasi.
 - **Safe Mode Kepatuhan ToS (Aman untuk Akun Utama)**:
   - Menggunakan telemetri perangkat resmi (`PC 64bit`, `Linux/x86_64`, `AppVersion 5.0.0`).
   - Antrean upload strictly 1 koneksi aktif pada satu waktu (meniru aplikasi resmi Telegram Desktop).
