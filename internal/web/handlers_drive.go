@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"teledrive/internal/crypto"
+	"teledrive/internal/db"
 	"teledrive/internal/telegram"
 )
 
@@ -149,7 +150,20 @@ func (s *Server) handleFileStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
+	s.serveFileStream(w, r, file)
+}
 
+func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	file, err := s.db.GetFile(id)
+	if err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	s.serveFileDownload(w, r, file)
+}
+
+func (s *Server) serveFileStream(w http.ResponseWriter, r *http.Request, file *db.File) {
 	docID, _ := strconv.ParseInt(file.TelegramFileID, 10, 64)
 	docHash, _ := strconv.ParseInt(file.TelegramAccessHash, 10, 64)
 
@@ -191,14 +205,7 @@ func (s *Server) handleFileStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	file, err := s.db.GetFile(id)
-	if err != nil {
-		http.Error(w, "file not found", http.StatusNotFound)
-		return
-	}
-
+func (s *Server) serveFileDownload(w http.ResponseWriter, r *http.Request, file *db.File) {
 	docID, _ := strconv.ParseInt(file.TelegramFileID, 10, 64)
 	docHash, _ := strconv.ParseInt(file.TelegramAccessHash, 10, 64)
 
@@ -214,3 +221,37 @@ func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request) {
 		_ = s.tg.DownloadFull(r.Context(), docID, docHash, w)
 	}
 }
+
+func (s *Server) handleBatchTrash(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		FileIDs   []string `json:"file_ids"`
+		FolderIDs []string `json:"folder_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	if err := s.db.BatchTrash(body.FileIDs, body.FolderIDs); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleBatchMove(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		FileIDs        []string `json:"file_ids"`
+		FolderIDs      []string `json:"folder_ids"`
+		TargetFolderID *string  `json:"target_folder_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	if err := s.db.BatchMove(body.FileIDs, body.FolderIDs, body.TargetFolderID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+

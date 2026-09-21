@@ -898,3 +898,119 @@ body {
   to { transform: rotate(360deg); }
 }
 
+/* Multi-Select & Selection UI */
+.item-checkbox {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-subtle);
+  background: var(--bg-surface);
+  cursor: pointer;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition-fast);
+  opacity: 0;
+}
+.card:hover .item-checkbox,
+.card.selected .item-checkbox,
+tr:hover .item-checkbox,
+tr.selected .item-checkbox {
+  opacity: 1;
+}
+.item-checkbox.checked {
+  background: var(--primary);
+  border-color: var(--primary);
+  opacity: 1;
+}
+.item-checkbox.checked::after {
+  content: "";
+  display: block;
+  width: 5px;
+  height: 9px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  margin-bottom: 2px;
+}
+.card.selected {
+  border-color: var(--primary);
+  background: rgba(79, 70, 229, 0.08);
+}
+tr.selected td {
+  background: rgba(79, 70, 229, 0.08);
+}
+
+/* Drag & Drop UI */
+.card[draggable="true"], tr[draggable="true"] {
+  cursor: grab;
+}
+.card.dragging, tr.dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+.drop-hover {
+  outline: 2px dashed var(--primary) !important;
+  background: rgba(79, 70, 229, 0.15) !important;
+  border-radius: var(--radius-md);
+}
+
+/* Floating Bulk Action Bar */
+.bulk-action-bar {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+  border-radius: 999px;
+  padding: 8px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  z-index: 1000;
+  backdrop-filter: blur(12px);
+  animation: slideUp 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes slideUp {
+  from { transform: translate(-50%, 20px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+.bulk-action-info {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.bulk-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Folder Move Tree */
+.tree-folder-node {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  transition: var(--transition-fast);
+}
+.tree-folder-node:hover {
+  background: var(--bg-surface-hover);
+}
+.tree-folder-node.selected {
+  background: var(--primary-light);
+  color: var(--primary);
+  font-weight: 600;
+}
+

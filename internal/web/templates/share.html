@@ -82,6 +82,125 @@
                 </button>
             </form>
         </div>
+        {{else if .IsFolder}}
+        <!-- Shared Virtual Folder View -->
+        <div>
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap;">
+                <div>
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                        <svg class="icon" viewBox="0 0 24 24" style="color: #f59e0b;"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+                        <h1 style="font-size: 1.25rem; font-weight: 700; word-break: break-all;">{{.FolderName}}</h1>
+                    </div>
+                    <div style="color: var(--text-muted); font-size: 0.825rem;">
+                        Shared Virtual Folder &bull; Read-only Guest Access
+                    </div>
+                </div>
+                <button class="btn btn-secondary" onclick="openShareQr()" title="Scan QR Code to share on mobile">
+                    <svg class="icon icon-sm" viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>
+                    <span>QR Code</span>
+                </button>
+            </div>
+
+            <!-- Breadcrumbs -->
+            <nav id="folder-breadcrumbs" style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem; margin-bottom: 12px; padding: 6px 12px; background: var(--bg-base); border-radius: var(--radius-sm); overflow-x: auto;"></nav>
+
+            <!-- Contents Table -->
+            <div style="border: 1px solid var(--border-subtle); border-radius: var(--radius-md); overflow: hidden; background: var(--bg-base);">
+                <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid var(--border-subtle); background: var(--bg-surface);">
+                            <th style="padding: 10px 14px; font-weight: 600;">Name</th>
+                            <th style="padding: 10px 14px; font-weight: 600; width: 120px;">Size</th>
+                            <th style="padding: 10px 14px; font-weight: 600; width: 100px; text-align: right;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="folder-contents-body">
+                        <tr><td colspan="3" style="padding: 24px; text-align: center; color: var(--text-muted);">Loading folder contents...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <script>
+            const shareToken = "{{.Token}}";
+            const rootFolderId = "{{.FolderID}}";
+            let currentFolderId = rootFolderId;
+
+            function formatBytes(bytes) {
+                if (!bytes || bytes === 0) return "0 B";
+                const k = 1024;
+                const sizes = ["B", "KB", "MB", "GB", "TB"];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+            }
+
+            async function loadFolder(fid) {
+                currentFolderId = fid || rootFolderId;
+                const tbody = document.getElementById("folder-contents-body");
+                const bcrumb = document.getElementById("folder-breadcrumbs");
+                tbody.innerHTML = '<tr><td colspan="3" style="padding: 24px; text-align: center; color: var(--text-muted);">Loading contents...</td></tr>';
+
+                try {
+                    const res = await fetch(`/s/${shareToken}/contents?folder_id=${currentFolderId}`);
+                    if (!res.ok) throw new Error("Failed to load folder");
+                    const data = await res.json();
+
+                    // Render breadcrumbs
+                    let crumbsHtml = "";
+                    if (data.breadcrumbs && data.breadcrumbs.length > 0) {
+                        crumbsHtml = data.breadcrumbs.map((c, idx) => {
+                            const isLast = idx === data.breadcrumbs.length - 1;
+                            if (isLast) {
+                                return `<span style="font-weight: 600; color: var(--text-primary);">${c.name}</span>`;
+                            }
+                            return `<span style="color: var(--primary); cursor: pointer;" onclick="loadFolder('${c.id}')">${c.name}</span> <span style="color: var(--text-muted);">&rsaquo;</span>`;
+                        }).join(" ");
+                    }
+                    bcrumb.innerHTML = crumbsHtml;
+
+                    // Render rows
+                    let rows = "";
+                    if (data.folders.length === 0 && data.files.length === 0) {
+                        rows = '<tr><td colspan="3" style="padding: 32px; text-align: center; color: var(--text-muted);">This folder is empty</td></tr>';
+                    } else {
+                        data.folders.forEach(f => {
+                            rows += `
+                                <tr style="border-bottom: 1px solid var(--border-subtle); cursor: pointer;" onclick="loadFolder('${f.id}')">
+                                    <td style="padding: 10px 14px; display: flex; align-items: center; gap: 8px;">
+                                        <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: #f59e0b;"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+                                        <span style="font-weight: 500;">${f.name}</span>
+                                    </td>
+                                    <td style="padding: 10px 14px; color: var(--text-muted);">&mdash;</td>
+                                    <td style="padding: 10px 14px; text-align: right; color: var(--primary);">Open &rsaquo;</td>
+                                </tr>
+                            `;
+                        });
+                        data.files.forEach(f => {
+                            rows += `
+                                <tr style="border-bottom: 1px solid var(--border-subtle);">
+                                    <td style="padding: 10px 14px;">
+                                        <span style="font-weight: 500;">${f.name}</span>
+                                    </td>
+                                    <td style="padding: 10px 14px; color: var(--text-muted);">${formatBytes(f.size)}</td>
+                                    <td style="padding: 10px 14px; text-align: right;">
+                                        <a href="/s/${shareToken}/files/${f.id}/download" class="btn btn-secondary" style="padding: 3px 8px; font-size: 0.75rem; text-decoration: none;" download>
+                                            Download
+                                        </a>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+                    }
+                    tbody.innerHTML = rows;
+                } catch (err) {
+                    tbody.innerHTML = `<tr><td colspan="3" style="padding: 24px; text-align: center; color: var(--danger);">${err.message}</td></tr>`;
+                }
+            }
+
+            document.addEventListener("DOMContentLoaded", () => {
+                loadFolder(rootFolderId);
+            });
+        </script>
         {{else}}
         <!-- File Details & Actions -->
         <div>

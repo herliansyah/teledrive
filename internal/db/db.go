@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS upload_sessions (
 CREATE TABLE IF NOT EXISTS share_links (
     id TEXT PRIMARY KEY,
     token TEXT UNIQUE NOT NULL,
-    file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    file_id TEXT NULL REFERENCES files(id) ON DELETE CASCADE,
+    folder_id TEXT NULL REFERENCES folders(id) ON DELETE CASCADE,
     password_hash TEXT NULL,
     expires_at DATETIME NULL,
     download_count INTEGER DEFAULT 0,
@@ -98,6 +99,7 @@ func Open(path string) (*DB, error) {
 	_, _ = sdb.Exec("ALTER TABLE folders ADD COLUMN deleted_at DATETIME NULL")
 	_, _ = sdb.Exec("ALTER TABLE files ADD COLUMN deleted_at DATETIME NULL")
 	_, _ = sdb.Exec("ALTER TABLE files ADD COLUMN is_encrypted INTEGER DEFAULT 0")
+	_, _ = sdb.Exec("ALTER TABLE share_links ADD COLUMN folder_id TEXT NULL REFERENCES folders(id) ON DELETE CASCADE")
 	_, _ = sdb.Exec("CREATE INDEX IF NOT EXISTS idx_folders_deleted ON folders(deleted_at)")
 	_, _ = sdb.Exec("CREATE INDEX IF NOT EXISTS idx_files_deleted ON files(deleted_at)")
 

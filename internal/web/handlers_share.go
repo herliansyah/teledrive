@@ -4,23 +4,33 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
-	"teledrive/internal/crypto"
-	"teledrive/internal/telegram"
 )
 
 func (s *Server) handleCreateShare(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		FileID     string  `json:"file_id"`
+		FileID     *string `json:"file_id"`
+		FolderID   *string `json:"folder_id"`
 		Password   *string `json:"password"`
 		ExpiryDays *int    `json:"expiry_days"`
+		ExpiresAt  *string `json:"expires_at"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.FileID == "" {
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	if body.FileID != nil && *body.FileID == "" {
+		body.FileID = nil
+	}
+	if body.FolderID != nil && *body.FolderID == "" {
+		body.FolderID = nil
+	}
+	if body.FileID == nil && body.FolderID == nil {
+		http.Error(w, "either file_id or folder_id is required", http.StatusBadRequest)
 		return
 	}
 
@@ -36,12 +46,20 @@ func (s *Server) handleCreateShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var expiresAt *time.Time
-	if body.ExpiryDays != nil && *body.ExpiryDays > 0 {
+	if body.ExpiresAt != nil && *body.ExpiresAt != "" {
+		t, err := time.Parse(time.RFC3339, *body.ExpiresAt)
+		if err != nil {
+			t, err = time.Parse("2006-01-02", *body.ExpiresAt)
+		}
+		if err == nil {
+			expiresAt = &t
+		}
+	} else if body.ExpiryDays != nil && *body.ExpiryDays > 0 {
 		exp := time.Now().Add(time.Duration(*body.ExpiryDays) * 24 * time.Hour)
 		expiresAt = &exp
 	}
 
-	share, err := s.db.CreateShareLink(body.FileID, pwdHash, expiresAt, nil)
+	share, err := s.db.CreateShareLink(body.FileID, body.FolderID, pwdHash, expiresAt, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -67,26 +85,51 @@ func (s *Server) handleShareLanding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, err := s.db.GetFile(share.FileID)
+	needPassword := share.PasswordHash != nil && !s.isTokenUnlocked(r, token)
+
+	if share.FolderID != nil {
+		folder, err := s.db.GetFolder(*share.FolderID)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		data := map[string]any{
+			"Token":        token,
+			"IsFolder":     true,
+			"FileName":     folder.Name,
+			"FolderName":   folder.Name,
+			"FolderID":     folder.ID,
+			"NeedPassword": needPassword,
+		}
+		_ = s.templates.ExecuteTemplate(w, "share.html", data)
+		return
+	}
+
+	if share.FileID == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	file, err := s.db.GetFile(*share.FileID)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
 
-	needPassword := share.PasswordHash != nil && !s.isTokenUnlocked(r, token)
-
 	data := map[string]any{
-		"Token":          token,
-		"FileName":       file.Name,
-		"FileSize":       file.Size,
-		"FormattedSize":  formatBytes(file.Size),
-		"MimeType":       file.MimeType,
-		"NeedPassword":   needPassword,
-		"IsVideo":        strings.HasPrefix(file.MimeType, "video/"),
-		"IsAudio":        strings.HasPrefix(file.MimeType, "audio/"),
-		"IsImage":        strings.HasPrefix(file.MimeType, "image/"),
-		"IsPDF":          file.MimeType == "application/pdf",
-		"IsText":         strings.HasPrefix(file.MimeType, "text/") || strings.HasSuffix(file.Name, ".json") || strings.HasSuffix(file.Name, ".md") || strings.HasSuffix(file.Name, ".txt"),
+		"Token":         token,
+		"IsFolder":      false,
+		"FileName":      file.Name,
+		"FileSize":      file.Size,
+		"FormattedSize": formatBytes(file.Size),
+		"MimeType":      file.MimeType,
+		"NeedPassword":  needPassword,
+		"IsVideo":       strings.HasPrefix(file.MimeType, "video/"),
+		"IsAudio":       strings.HasPrefix(file.MimeType, "audio/"),
+		"IsImage":       strings.HasPrefix(file.MimeType, "image/"),
+		"IsPDF":         file.MimeType == "application/pdf",
+		"IsText":        strings.HasPrefix(file.MimeType, "text/") || strings.HasSuffix(file.Name, ".json") || strings.HasSuffix(file.Name, ".md") || strings.HasSuffix(file.Name, ".txt"),
 	}
 
 	_ = s.templates.ExecuteTemplate(w, "share.html", data)
@@ -103,10 +146,20 @@ func (s *Server) handleShareUnlock(w http.ResponseWriter, r *http.Request) {
 	pwd := r.FormValue("password")
 	if share.PasswordHash != nil {
 		if err := bcrypt.CompareHashAndPassword([]byte(*share.PasswordHash), []byte(pwd)); err != nil {
-			file, _ := s.db.GetFile(share.FileID)
+			targetName := "Item"
+			if share.FileID != nil {
+				if file, err := s.db.GetFile(*share.FileID); err == nil {
+					targetName = file.Name
+				}
+			} else if share.FolderID != nil {
+				if folder, err := s.db.GetFolder(*share.FolderID); err == nil {
+					targetName = folder.Name
+				}
+			}
 			_ = s.templates.ExecuteTemplate(w, "share.html", map[string]any{
 				"Token":        token,
-				"FileName":     file.Name,
+				"FileName":     targetName,
+				"IsFolder":     share.FolderID != nil,
 				"NeedPassword": true,
 				"Error":        "Incorrect password",
 			})
@@ -121,8 +174,13 @@ func (s *Server) handleShareUnlock(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleShareStream(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
 	share, err := s.db.GetShareLink(token)
-	if err != nil {
+	if err != nil || share.FileID == nil {
 		http.NotFound(w, r)
+		return
+	}
+
+	if share.ExpiresAt != nil && time.Now().After(*share.ExpiresAt) {
+		http.Error(w, "This share link has expired", http.StatusGone)
 		return
 	}
 
@@ -131,58 +189,25 @@ func (s *Server) handleShareStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, err := s.db.GetFile(share.FileID)
+	file, err := s.db.GetFile(*share.FileID)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
 
-	docID, _ := strconv.ParseInt(file.TelegramFileID, 10, 64)
-	docHash, _ := strconv.ParseInt(file.TelegramAccessHash, 10, 64)
-
-	w.Header().Set("Content-Type", file.MimeType)
-	w.Header().Set("Accept-Ranges", "bytes")
-
-	rangeHeader := r.Header.Get("Range")
-	start, end, hasRange, err := telegram.ParseRange(rangeHeader, file.Size)
-	if err != nil {
-		http.Error(w, "invalid range", http.StatusRequestedRangeNotSatisfiable)
-		return
-	}
-
-	if hasRange {
-		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, file.Size))
-		w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
-		w.WriteHeader(http.StatusPartialContent)
-
-		if file.IsEncrypted == 1 {
-			key, iv := crypto.DeriveFileStreamKeyAndIV(s.cfg.SecretKey, file.ID)
-			_ = s.tg.DownloadRange(r.Context(), docID, docHash, start, end, w, s.limiter, func(data []byte, offset int64) ([]byte, error) {
-				return crypto.TransformBytes(data, key, iv, offset)
-			})
-		} else {
-			_ = s.tg.DownloadRange(r.Context(), docID, docHash, start, end, w, s.limiter)
-		}
-		return
-	}
-
-	w.Header().Set("Content-Length", strconv.FormatInt(file.Size, 10))
-	w.WriteHeader(http.StatusOK)
-
-	if file.IsEncrypted == 1 {
-		key, iv := crypto.DeriveFileStreamKeyAndIV(s.cfg.SecretKey, file.ID)
-		dw, _ := crypto.DecryptStreamWriter(w, key, iv, 0)
-		_ = s.tg.DownloadFull(r.Context(), docID, docHash, dw)
-	} else {
-		_ = s.tg.DownloadFull(r.Context(), docID, docHash, w)
-	}
+	s.serveFileStream(w, r, file)
 }
 
 func (s *Server) handleShareDownload(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
 	share, err := s.db.GetShareLink(token)
-	if err != nil {
+	if err != nil || share.FileID == nil {
 		http.NotFound(w, r)
+		return
+	}
+
+	if share.ExpiresAt != nil && time.Now().After(*share.ExpiresAt) {
+		http.Error(w, "This share link has expired", http.StatusGone)
 		return
 	}
 
@@ -191,28 +216,155 @@ func (s *Server) handleShareDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, err := s.db.GetFile(share.FileID)
+	file, err := s.db.GetFile(*share.FileID)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
 
 	_ = s.db.IncrementShareDownload(token)
+	s.serveFileDownload(w, r, file)
+}
 
-	docID, _ := strconv.ParseInt(file.TelegramFileID, 10, 64)
-	docHash, _ := strconv.ParseInt(file.TelegramAccessHash, 10, 64)
-
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", file.Name))
-	w.Header().Set("Content-Length", strconv.FormatInt(file.Size, 10))
-
-	if file.IsEncrypted == 1 {
-		key, iv := crypto.DeriveFileStreamKeyAndIV(s.cfg.SecretKey, file.ID)
-		dw, _ := crypto.DecryptStreamWriter(w, key, iv, 0)
-		_ = s.tg.DownloadFull(r.Context(), docID, docHash, dw)
-	} else {
-		_ = s.tg.DownloadFull(r.Context(), docID, docHash, w)
+func (s *Server) handleShareFolderContents(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue("token")
+	share, err := s.db.GetShareLink(token)
+	if err != nil || share.FolderID == nil {
+		http.NotFound(w, r)
+		return
 	}
+
+	if share.ExpiresAt != nil && time.Now().After(*share.ExpiresAt) {
+		http.Error(w, "This share link has expired", http.StatusGone)
+		return
+	}
+
+	if share.PasswordHash != nil && !s.isTokenUnlocked(r, token) {
+		http.Error(w, "Password required", http.StatusForbidden)
+		return
+	}
+
+	rootFolderID := *share.FolderID
+	targetFolderID := rootFolderID
+
+	reqFolderID := r.URL.Query().Get("folder_id")
+	if reqFolderID != "" && reqFolderID != rootFolderID {
+		isDescendant, err := s.db.IsFolderInFolderHierarchy(reqFolderID, rootFolderID)
+		if err != nil || !isDescendant {
+			http.Error(w, "Access denied outside shared folder", http.StatusForbidden)
+			return
+		}
+		targetFolderID = reqFolderID
+	}
+
+	folders, err := s.db.ListFolders(&targetFolderID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	files, err := s.db.ListFiles(&targetFolderID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Build breadcrumbs path relative to shared root
+	type crumb struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	var breadcrumbs []crumb
+	currID := &targetFolderID
+	for currID != nil {
+		f, err := s.db.GetFolder(*currID)
+		if err != nil {
+			break
+		}
+		breadcrumbs = append([]crumb{{ID: f.ID, Name: f.Name}}, breadcrumbs...)
+		if f.ID == rootFolderID {
+			break
+		}
+		currID = f.ParentID
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"root_id":     rootFolderID,
+		"folder_id":   targetFolderID,
+		"folders":     folders,
+		"files":       files,
+		"breadcrumbs": breadcrumbs,
+	})
+}
+
+func (s *Server) handleShareFolderFileStream(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue("token")
+	fileID := r.PathValue("id")
+	share, err := s.db.GetShareLink(token)
+	if err != nil || share.FolderID == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if share.ExpiresAt != nil && time.Now().After(*share.ExpiresAt) {
+		http.Error(w, "This share link has expired", http.StatusGone)
+		return
+	}
+
+	if share.PasswordHash != nil && !s.isTokenUnlocked(r, token) {
+		http.Error(w, "Password required", http.StatusForbidden)
+		return
+	}
+
+	valid, err := s.db.IsFileInFolderHierarchy(fileID, *share.FolderID)
+	if err != nil || !valid {
+		http.Error(w, "File not in shared folder", http.StatusForbidden)
+		return
+	}
+
+	file, err := s.db.GetFile(fileID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	s.serveFileStream(w, r, file)
+}
+
+func (s *Server) handleShareFolderFileDownload(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue("token")
+	fileID := r.PathValue("id")
+	share, err := s.db.GetShareLink(token)
+	if err != nil || share.FolderID == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if share.ExpiresAt != nil && time.Now().After(*share.ExpiresAt) {
+		http.Error(w, "This share link has expired", http.StatusGone)
+		return
+	}
+
+	if share.PasswordHash != nil && !s.isTokenUnlocked(r, token) {
+		http.Error(w, "Password required", http.StatusForbidden)
+		return
+	}
+
+	valid, err := s.db.IsFileInFolderHierarchy(fileID, *share.FolderID)
+	if err != nil || !valid {
+		http.Error(w, "File not in shared folder", http.StatusForbidden)
+		return
+	}
+
+	file, err := s.db.GetFile(fileID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	_ = s.db.IncrementShareDownload(token)
+	s.serveFileDownload(w, r, file)
 }
 
 func (s *Server) isTokenUnlocked(r *http.Request, token string) bool {
@@ -265,4 +417,3 @@ func (s *Server) handleDeleteShare(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-

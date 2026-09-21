@@ -13,6 +13,8 @@ let currentSort = { field: "name", order: "asc" };
 let currentTab = "drive"; // "drive" or "shares"
 let searchDebounceTimer = null;
 let activeSearchQuery = "";
+let selectedItems = new Map(); // key: "type:id" -> { id, type, name }
+let draggedItem = null; // { id, type }
 
 // Upload Manager State
 let uploadQueue = [];
@@ -176,7 +178,7 @@ function renderBreadcrumbs() {
 
     if (activeSearchQuery) {
         el.innerHTML = `
-            <span class="breadcrumb-item" onclick="clearSearch()">
+            <span class="breadcrumb-item" onclick="clearSearch()" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDropOnTarget(event, null)">
                 ${getIcon("folder", "icon-sm")} Drive
             </span>
             <span class="breadcrumb-separator">${getIcon("chevron-right", "icon-sm")}</span>
@@ -186,7 +188,8 @@ function renderBreadcrumbs() {
     }
 
     let html = `
-        <span class="breadcrumb-item ${currentFolderId === null ? "active" : ""}" onclick="navigateTo(null, 'Drive')">
+        <span class="breadcrumb-item ${currentFolderId === null ? "active" : ""}" onclick="navigateTo(null, 'Drive')"
+              ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDropOnTarget(event, null)">
             ${getIcon("folder", "icon-sm")} Drive
         </span>
     `;
@@ -194,9 +197,10 @@ function renderBreadcrumbs() {
     currentFolderPath.forEach((crumb, idx) => {
         html += `<span class="breadcrumb-separator">${getIcon("chevron-right", "icon-sm")}</span>`;
         if (idx === currentFolderPath.length - 1) {
-            html += `<span class="breadcrumb-item active">${escapeHtml(crumb.name)}</span>`;
+            html += `<span class="breadcrumb-item active" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDropOnTarget(event, '${crumb.id}')">${escapeHtml(crumb.name)}</span>`;
         } else {
-            html += `<span class="breadcrumb-item" onclick="navigateTo('${crumb.id}', '${escapeHtml(crumb.name)}')">${escapeHtml(crumb.name)}</span>`;
+            html += `<span class="breadcrumb-item" onclick="navigateTo('${crumb.id}', '${escapeHtml(crumb.name)}')"
+                           ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDropOnTarget(event, '${crumb.id}')">${escapeHtml(crumb.name)}</span>`;
         }
     });
 
@@ -204,6 +208,7 @@ function renderBreadcrumbs() {
 }
 
 function navigateTo(folderId, folderName) {
+    deselectAll();
     if (folderId === null) {
         currentFolderId = null;
         currentFolderPath = [];
@@ -300,11 +305,23 @@ function renderFoldersGrid(folders) {
     }
     section.style.display = "block";
 
-    container.innerHTML = folders.map(f => `
-        <div class="card" onclick="navigateTo('${f.id}', '${escapeHtml(f.name)}')">
+    container.innerHTML = folders.map(f => {
+        const checked = isSelected("folder", f.id);
+        return `
+        <div class="card ${checked ? "selected" : ""}" data-id="${f.id}" data-type="folder"
+             draggable="true"
+             ondragstart="handleDragStart(event, '${f.id}', 'folder')"
+             ondragend="handleDragEnd(event)"
+             ondragover="handleDragOver(event)"
+             ondragleave="handleDragLeave(event)"
+             ondrop="handleDropOnTarget(event, '${f.id}')"
+             onclick="navigateTo('${f.id}', '${escapeHtml(f.name)}')">
+            <div class="item-checkbox ${checked ? "checked" : ""}" onclick="toggleSelectItem('folder', '${f.id}', event)"></div>
             <div class="card-top">
                 <div class="card-icon-wrap folder">${getIcon("folder")}</div>
                 <div class="card-actions" onclick="event.stopPropagation()">
+                    <button class="btn-icon" title="Share Virtual Folder" onclick="openShareModal('${f.id}', '${escapeHtml(f.name)}', 'folder')">${getIcon("share-2", "icon-sm")}</button>
+                    <button class="btn-icon" title="Move to..." onclick="openMoveModal('${f.id}', 'folder', '${escapeHtml(f.name)}')"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></button>
                     <button class="btn-icon" title="Rename" onclick="promptRenameFolder('${f.id}', '${escapeHtml(f.name)}')">${getIcon("edit", "icon-sm")}</button>
                     <button class="btn-icon" title="Delete" onclick="confirmDeleteFolder('${f.id}', '${escapeHtml(f.name)}')">${getIcon("trash-2", "icon-sm")}</button>
                 </div>
@@ -314,7 +331,8 @@ function renderFoldersGrid(folders) {
                 <div class="card-meta">Virtual Folder</div>
             </div>
         </div>
-    `).join("");
+    `;
+    }).join("");
 }
 
 function renderFilesGrid(files) {
@@ -339,14 +357,21 @@ function renderFilesGrid(files) {
 
     container.innerHTML = files.map(f => {
         const fileType = getFileCategory(f.mime_type, f.name);
+        const checked = isSelected("file", f.id);
         return `
-            <div class="card" onclick="openPreview('${f.id}', '${escapeHtml(f.name)}', '${f.mime_type}', ${f.size})">
+            <div class="card ${checked ? "selected" : ""}" data-id="${f.id}" data-type="file"
+                 draggable="true"
+                 ondragstart="handleDragStart(event, '${f.id}', 'file')"
+                 ondragend="handleDragEnd(event)"
+                 onclick="openPreview('${f.id}', '${escapeHtml(f.name)}', '${f.mime_type}', ${f.size})">
+                <div class="item-checkbox ${checked ? "checked" : ""}" onclick="toggleSelectItem('file', '${f.id}', event)"></div>
                 <div class="card-top">
                     <div class="card-icon-wrap ${fileType.category}">
                         ${getIcon(fileType.icon)}
                     </div>
                     <div class="card-actions" onclick="event.stopPropagation()">
-                        <button class="btn-icon" title="Share Link" onclick="openShareModal('${f.id}', '${escapeHtml(f.name)}')">${getIcon("share-2", "icon-sm")}</button>
+                        <button class="btn-icon" title="Share Link" onclick="openShareModal('${f.id}', '${escapeHtml(f.name)}', 'file')">${getIcon("share-2", "icon-sm")}</button>
+                        <button class="btn-icon" title="Move to..." onclick="openMoveModal('${f.id}', 'file', '${escapeHtml(f.name)}')"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></button>
                         <button class="btn-icon" title="Download" onclick="downloadFile('${f.id}', '${escapeHtml(f.name)}')">${getIcon("download", "icon-sm")}</button>
                         <button class="btn-icon" title="Rename" onclick="promptRenameFile('${f.id}', '${escapeHtml(f.name)}')">${getIcon("edit", "icon-sm")}</button>
                         <button class="btn-icon" title="Delete" onclick="confirmDeleteFile('${f.id}', '${escapeHtml(f.name)}')">${getIcon("trash-2", "icon-sm")}</button>
@@ -378,8 +403,19 @@ function renderTableList(folders, files) {
 
     // Folders first
     folders.forEach(f => {
+        const checked = isSelected("folder", f.id);
         rowsHtml += `
-            <tr onclick="navigateTo('${f.id}', '${escapeHtml(f.name)}')">
+            <tr class="${checked ? "selected" : ""}" data-id="${f.id}" data-type="folder"
+                draggable="true"
+                ondragstart="handleDragStart(event, '${f.id}', 'folder')"
+                ondragend="handleDragEnd(event)"
+                ondragover="handleDragOver(event)"
+                ondragleave="handleDragLeave(event)"
+                ondrop="handleDropOnTarget(event, '${f.id}')"
+                onclick="navigateTo('${f.id}', '${escapeHtml(f.name)}')">
+                <td style="text-align: center;" onclick="event.stopPropagation()">
+                    <div class="item-checkbox ${checked ? "checked" : ""}" style="position: static; opacity: 1;" onclick="toggleSelectItem('folder', '${f.id}', event)"></div>
+                </td>
                 <td>
                     <div class="table-name-cell">
                         <span style="color: #f59e0b;">${getIcon("folder")}</span>
@@ -389,7 +425,9 @@ function renderTableList(folders, files) {
                 <td style="color: var(--text-muted);">&mdash;</td>
                 <td style="color: var(--text-muted);">${formatDate(f.updated_at || f.created_at)}</td>
                 <td onclick="event.stopPropagation()">
-                    <div style="display: flex; gap: 4px;">
+                    <div style="display: flex; gap: 4px; justify-content: flex-end;">
+                        <button class="btn-icon" title="Share Virtual Folder" onclick="openShareModal('${f.id}', '${escapeHtml(f.name)}', 'folder')">${getIcon("share-2", "icon-sm")}</button>
+                        <button class="btn-icon" title="Move to..." onclick="openMoveModal('${f.id}', 'folder', '${escapeHtml(f.name)}')"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></button>
                         <button class="btn-icon" title="Rename" onclick="promptRenameFolder('${f.id}', '${escapeHtml(f.name)}')">${getIcon("edit", "icon-sm")}</button>
                         <button class="btn-icon" title="Delete" onclick="confirmDeleteFolder('${f.id}', '${escapeHtml(f.name)}')">${getIcon("trash-2", "icon-sm")}</button>
                     </div>
@@ -401,8 +439,16 @@ function renderTableList(folders, files) {
     // Files
     files.forEach(f => {
         const fileType = getFileCategory(f.mime_type, f.name);
+        const checked = isSelected("file", f.id);
         rowsHtml += `
-            <tr onclick="openPreview('${f.id}', '${escapeHtml(f.name)}', '${f.mime_type}', ${f.size})">
+            <tr class="${checked ? "selected" : ""}" data-id="${f.id}" data-type="file"
+                draggable="true"
+                ondragstart="handleDragStart(event, '${f.id}', 'file')"
+                ondragend="handleDragEnd(event)"
+                onclick="openPreview('${f.id}', '${escapeHtml(f.name)}', '${f.mime_type}', ${f.size})">
+                <td style="text-align: center;" onclick="event.stopPropagation()">
+                    <div class="item-checkbox ${checked ? "checked" : ""}" style="position: static; opacity: 1;" onclick="toggleSelectItem('file', '${f.id}', event)"></div>
+                </td>
                 <td>
                     <div class="table-name-cell">
                         <span class="card-icon-wrap ${fileType.category}" style="width: 28px; height: 28px;">
@@ -414,8 +460,9 @@ function renderTableList(folders, files) {
                 <td>${formatSize(f.size)}</td>
                 <td style="color: var(--text-muted);">${formatDate(f.updated_at || f.created_at)}</td>
                 <td onclick="event.stopPropagation()">
-                    <div style="display: flex; gap: 4px;">
-                        <button class="btn-icon" title="Share Link" onclick="openShareModal('${f.id}', '${escapeHtml(f.name)}')">${getIcon("share-2", "icon-sm")}</button>
+                    <div style="display: flex; gap: 4px; justify-content: flex-end;">
+                        <button class="btn-icon" title="Share Link" onclick="openShareModal('${f.id}', '${escapeHtml(f.name)}', 'file')">${getIcon("share-2", "icon-sm")}</button>
+                        <button class="btn-icon" title="Move to..." onclick="openMoveModal('${f.id}', 'file', '${escapeHtml(f.name)}')"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></button>
                         <button class="btn-icon" title="Download" onclick="downloadFile('${f.id}', '${escapeHtml(f.name)}')">${getIcon("download", "icon-sm")}</button>
                         <button class="btn-icon" title="Rename" onclick="promptRenameFile('${f.id}', '${escapeHtml(f.name)}')">${getIcon("edit", "icon-sm")}</button>
                         <button class="btn-icon" title="Delete" onclick="confirmDeleteFile('${f.id}', '${escapeHtml(f.name)}')">${getIcon("trash-2", "icon-sm")}</button>
@@ -534,15 +581,18 @@ async function loadSharesContent() {
         tbody.innerHTML = shares.map(s => {
             const shareUrl = `${window.location.origin}/s/${s.token}`;
             const isExpired = s.expires_at && new Date(s.expires_at) < new Date();
+            const isFolder = s.type === "folder";
+            const targetName = s.target_name || s.file_name;
             return `
                 <tr>
                     <td>
                         <div class="table-name-cell">
-                            <span style="color: var(--primary);">${getIcon("share-2")}</span>
-                            <span style="font-weight: 600;">${escapeHtml(s.file_name)}</span>
+                            <span style="color: ${isFolder ? "#f59e0b" : "var(--primary)"};">${getIcon(isFolder ? "folder" : "share-2")}</span>
+                            <span style="font-weight: 600;">${escapeHtml(targetName)}</span>
+                            ${isFolder ? '<span style="font-size: 0.7rem; background: rgba(245, 158, 11, 0.15); color: #f59e0b; padding: 2px 6px; border-radius: 4px; font-weight: 600;">Folder</span>' : ''}
                         </div>
                     </td>
-                    <td>${formatSize(s.file_size)}</td>
+                    <td>${isFolder ? "&mdash;" : formatSize(s.file_size)}</td>
                     <td>
                         ${s.has_password 
                             ? `<span style="color: var(--warning); display: flex; align-items: center; gap: 4px;">${getIcon("lock", "icon-sm")} Protected</span>` 
@@ -1060,39 +1110,76 @@ function closePreview() {
 }
 
 // --- Share Modal ---
-let activeShareFileId = null;
+let activeShareTarget = null; // { id, name, type: "file" | "folder" }
 
-function openShareModal(fileId, fileName) {
-    activeShareFileId = fileId;
+function openShareModal(id, name, type = "file") {
+    activeShareTarget = { id, name, type };
     const modal = document.getElementById("share-modal");
     const nameEl = document.getElementById("share-file-name");
     const resultBox = document.getElementById("share-result-box");
     const pwdInput = document.getElementById("share-password");
+    const expirySelect = document.getElementById("share-expiry");
+    const customDateGroup = document.getElementById("share-custom-date-group");
+    const customDateInput = document.getElementById("share-custom-date");
 
-    if (nameEl) nameEl.innerText = fileName;
+    if (nameEl) {
+        nameEl.innerHTML = `${type === "folder" ? "📁 " : "📄 "}<strong>${escapeHtml(name)}</strong> (${type === "folder" ? "Virtual Folder" : "File"})`;
+    }
     if (resultBox) resultBox.style.display = "none";
     if (pwdInput) pwdInput.value = "";
+    if (expirySelect) expirySelect.value = "0"; // Default: Never expires
+    if (customDateGroup) customDateGroup.style.display = "none";
+    if (customDateInput) customDateInput.value = "";
     if (modal) modal.style.display = "flex";
+}
+
+function handleShareExpiryChange() {
+    const val = document.getElementById("share-expiry").value;
+    const group = document.getElementById("share-custom-date-group");
+    if (group) group.style.display = (val === "custom") ? "block" : "none";
 }
 
 function closeShareModal() {
     const modal = document.getElementById("share-modal");
     if (modal) modal.style.display = "none";
+    activeShareTarget = null;
 }
 
 async function createShareLinkSubmit() {
+    if (!activeShareTarget) return;
     const password = document.getElementById("share-password").value.trim();
-    const expiryDays = parseInt(document.getElementById("share-expiry").value);
+    const expiryVal = document.getElementById("share-expiry").value;
+    let expiryDays = null;
+    let expiresAt = null;
+
+    if (expiryVal === "custom") {
+        const customDate = document.getElementById("share-custom-date").value;
+        if (!customDate) {
+            showToast("Please select a custom expiration date", "error");
+            return;
+        }
+        expiresAt = customDate;
+    } else {
+        const days = parseInt(expiryVal);
+        if (days > 0) expiryDays = days;
+    }
 
     try {
+        const payload = {
+            password: password || null,
+            expiry_days: expiryDays,
+            expires_at: expiresAt
+        };
+        if (activeShareTarget.type === "folder") {
+            payload.folder_id = activeShareTarget.id;
+        } else {
+            payload.file_id = activeShareTarget.id;
+        }
+
         const res = await fetch("/api/share", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                file_id: activeShareFileId,
-                password: password || null,
-                expiry_days: expiryDays || null
-            })
+            body: JSON.stringify(payload)
         });
 
         if (!res.ok) throw new Error("Failed to create share link");
@@ -1399,3 +1486,300 @@ function setupMobileSidebar() {
         });
     }
 }
+
+// --- Selection State & Bulk Actions ---
+function isSelected(type, id) {
+    return selectedItems.has(`${type}:${id}`);
+}
+
+function toggleSelectItem(type, id, event) {
+    if (event) event.stopPropagation();
+    const key = `${type}:${id}`;
+    if (selectedItems.has(key)) {
+        selectedItems.delete(key);
+    } else {
+        let name = "";
+        if (type === "folder") {
+            const f = cachedFolders.find(x => x.id === id);
+            if (f) name = f.name;
+        } else {
+            const f = cachedFiles.find(x => x.id === id);
+            if (f) name = f.name;
+        }
+        selectedItems.set(key, { id, type, name });
+    }
+    updateSelectionUI();
+}
+
+function selectAll() {
+    cachedFolders.forEach(f => selectedItems.set(`folder:${f.id}`, { id: f.id, type: "folder", name: f.name }));
+    cachedFiles.forEach(f => selectedItems.set(`file:${f.id}`, { id: f.id, type: "file", name: f.name }));
+    updateSelectionUI();
+}
+
+function deselectAll() {
+    selectedItems.clear();
+    updateSelectionUI();
+}
+
+function toggleSelectAll(event) {
+    if (event) event.stopPropagation();
+    const totalItems = cachedFolders.length + cachedFiles.length;
+    if (totalItems === 0) return;
+    if (selectedItems.size === totalItems) {
+        deselectAll();
+    } else {
+        selectAll();
+    }
+}
+
+function updateSelectionUI() {
+    document.querySelectorAll(".card, tr").forEach(el => {
+        const id = el.getAttribute("data-id");
+        const type = el.getAttribute("data-type");
+        if (!id || !type) return;
+        const checked = isSelected(type, id);
+        el.classList.toggle("selected", checked);
+        const cb = el.querySelector(".item-checkbox");
+        if (cb && !cb.id) cb.classList.toggle("checked", checked);
+    });
+
+    const totalItems = cachedFolders.length + cachedFiles.length;
+    const selectAllCb = document.getElementById("select-all-checkbox");
+    if (selectAllCb) {
+        selectAllCb.classList.toggle("checked", totalItems > 0 && selectedItems.size === totalItems);
+    }
+
+    const bar = document.getElementById("bulk-action-bar");
+    const countEl = document.getElementById("bulk-selected-count");
+    if (bar && countEl) {
+        countEl.innerText = selectedItems.size;
+        bar.style.display = selectedItems.size > 0 ? "flex" : "none";
+    }
+}
+
+async function batchTrashSelected() {
+    if (selectedItems.size === 0) return;
+    const count = selectedItems.size;
+
+    showConfirmDialog({
+        title: "Move to Virtual Trash",
+        message: `Are you sure you want to move ${count} item(s) to Virtual Trash?`,
+        confirmText: "Trash Items",
+        confirmClass: "btn-danger",
+        onConfirm: async () => {
+            const fileIds = [];
+            const folderIds = [];
+            selectedItems.forEach(item => {
+                if (item.type === "folder") folderIds.push(item.id);
+                else fileIds.push(item.id);
+            });
+
+            try {
+                const res = await fetch("/api/batch/trash", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ file_ids: fileIds, folder_ids: folderIds })
+                });
+                if (!res.ok) throw new Error("Failed to trash items");
+                deselectAll();
+                await loadDriveContent();
+                showToast(`Moved ${count} item(s) to Virtual Trash`, "success");
+            } catch (err) {
+                showToast(err.message, "error");
+            }
+        }
+    });
+}
+
+// --- Move Modal & Tree Picker ---
+let moveTargets = []; // array of { id, type, name }
+let selectedDestinationFolderId = null;
+
+async function openMoveModal(id, type, name) {
+    moveTargets = [{ id, type, name }];
+    const titleEl = document.getElementById("move-modal-title");
+    if (titleEl) titleEl.innerText = `Move "${name}"`;
+    selectedDestinationFolderId = null;
+    await renderMoveFolderTree();
+    const modal = document.getElementById("move-modal");
+    if (modal) modal.style.display = "flex";
+}
+
+async function openBatchMoveModal() {
+    if (selectedItems.size === 0) return;
+    moveTargets = Array.from(selectedItems.values());
+    const titleEl = document.getElementById("move-modal-title");
+    if (titleEl) titleEl.innerText = `Move ${moveTargets.length} item(s)`;
+    selectedDestinationFolderId = null;
+    await renderMoveFolderTree();
+    const modal = document.getElementById("move-modal");
+    if (modal) modal.style.display = "flex";
+}
+
+function closeMoveModal() {
+    const modal = document.getElementById("move-modal");
+    if (modal) modal.style.display = "none";
+    moveTargets = [];
+    selectedDestinationFolderId = null;
+}
+
+async function renderMoveFolderTree() {
+    const container = document.getElementById("move-folder-tree");
+    if (!container) return;
+    container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem; padding: 8px;">Loading folders...</div>';
+
+    try {
+        const res = await fetch("/api/folders");
+        const folders = await res.json() || [];
+        const targetFolderIds = new Set(moveTargets.filter(t => t.type === "folder").map(t => t.id));
+
+        let html = `
+            <div class="tree-folder-node ${selectedDestinationFolderId === null ? "selected" : ""}" onclick="selectMoveDestination(null, this)">
+                ${getIcon("folder", "icon-sm")}
+                <span>Drive (Root)</span>
+            </div>
+        `;
+
+        folders.filter(f => !targetFolderIds.has(f.id)).forEach(f => {
+            html += `
+                <div class="tree-folder-node ${selectedDestinationFolderId === f.id ? "selected" : ""}" onclick="selectMoveDestination('${f.id}', this)" style="margin-left: 16px;">
+                    ${getIcon("folder", "icon-sm")}
+                    <span>${escapeHtml(f.name)}</span>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    } catch (err) {
+        container.innerHTML = `<div style="color: var(--danger); font-size: 0.85rem; padding: 8px;">Failed to load folders</div>`;
+    }
+}
+
+function selectMoveDestination(folderId, element) {
+    selectedDestinationFolderId = folderId;
+    document.querySelectorAll(".tree-folder-node").forEach(el => el.classList.remove("selected"));
+    if (element) element.classList.add("selected");
+}
+
+async function confirmMoveDestination() {
+    if (moveTargets.length === 0) return;
+    const fileIds = moveTargets.filter(t => t.type === "file").map(t => t.id);
+    const folderIds = moveTargets.filter(t => t.type === "folder").map(t => t.id);
+
+    try {
+        const res = await fetch("/api/batch/move", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                file_ids: fileIds,
+                folder_ids: folderIds,
+                target_folder_id: selectedDestinationFolderId
+            })
+        });
+        if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(errText || "Move failed");
+        }
+        closeMoveModal();
+        deselectAll();
+        await loadDriveContent();
+        showToast("Moved successfully", "success");
+    } catch (err) {
+        showToast(err.message, "error");
+    }
+}
+
+// --- Drag & Drop for Moving Items ---
+function handleDragStart(e, id, type) {
+    draggedItem = { id, type };
+    e.dataTransfer.setData("text/plain", `${type}:${id}`);
+    e.dataTransfer.effectAllowed = "move";
+    if (e.currentTarget) e.currentTarget.classList.add("dragging");
+}
+
+function handleDragEnd(e) {
+    if (e.currentTarget) e.currentTarget.classList.remove("dragging");
+    document.querySelectorAll(".drop-hover").forEach(el => el.classList.remove("drop-hover"));
+    draggedItem = null;
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    if (e.currentTarget && !e.currentTarget.classList.contains("drop-hover")) {
+        e.currentTarget.classList.add("drop-hover");
+    }
+}
+
+function handleDragLeave(e) {
+    if (e.currentTarget) e.currentTarget.classList.remove("drop-hover");
+}
+
+async function handleDropOnTarget(e, targetFolderId) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget) e.currentTarget.classList.remove("drop-hover");
+    if (!draggedItem) return;
+
+    if (draggedItem.type === "folder" && draggedItem.id === targetFolderId) {
+        return;
+    }
+
+    let fileIds = [];
+    let folderIds = [];
+
+    if (isSelected(draggedItem.type, draggedItem.id) && selectedItems.size > 1) {
+        selectedItems.forEach(item => {
+            if (item.type === "folder") folderIds.push(item.id);
+            else fileIds.push(item.id);
+        });
+    } else {
+        if (draggedItem.type === "folder") folderIds.push(draggedItem.id);
+        else fileIds.push(draggedItem.id);
+    }
+
+    try {
+        const res = await fetch("/api/batch/move", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                file_ids: fileIds,
+                folder_ids: folderIds,
+                target_folder_id: targetFolderId || null
+            })
+        });
+        if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(errText || "Move failed");
+        }
+        deselectAll();
+        await loadDriveContent();
+        showToast("Moved successfully", "success");
+    } catch (err) {
+        showToast(err.message, "error");
+    }
+}
+
+// --- Keyboard Shortcuts ---
+document.addEventListener("keydown", (e) => {
+    const active = document.activeElement;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) return;
+    const anyModalOpen = Array.from(document.querySelectorAll(".modal-overlay")).some(m => m.style.display === "flex");
+    if (anyModalOpen) return;
+
+    if (e.key === "F2") {
+        if (selectedItems.size === 1) {
+            e.preventDefault();
+            const item = Array.from(selectedItems.values())[0];
+            if (item.type === "folder") promptRenameFolder(item.id, item.name);
+            else promptRenameFile(item.id, item.name);
+        }
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedItems.size > 0) {
+            e.preventDefault();
+            batchTrashSelected();
+        }
+    }
+});
