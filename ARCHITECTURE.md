@@ -332,6 +332,77 @@ sequenceDiagram
 
 ---
 
+### 2.10 In-App & CLI Self-Update Flow
+
+TeleDrive queries the GitHub Releases API to verify whether a newer release exists, matches the compatible pre-compiled archive for the host OS and architecture, replaces the running executable in place, and initiates a graceful restart.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Web Client / CLI
+    participant App as TeleDrive Server / CLI
+    participant Updater as Update Engine (internal/update)
+    participant GH as GitHub Releases API
+    participant OS as Host Operating System
+
+    User->>App: GET /api/system/update (or teledrive update)
+    App->>Updater: CheckForUpdate()
+    Updater->>GH: GET /repos/herliansyah/teledrive/releases/latest
+    GH-->>Updater: Release tag & asset download URLs
+    Updater-->>App: Update status (current_version vs latest_version)
+
+    opt Apply Update
+        User->>App: POST /api/system/update/apply (or CLI auto-confirm)
+        App->>Updater: ApplyUpdate(downloadURL)
+        Updater->>GH: Download OS/Arch archive (.tar.gz)
+        Updater->>OS: Unpack & replace current binary in place
+        App-->>User: 200 OK (Update applied, restarting...)
+        App->>OS: Graceful server restart (exec / fork)
+    end
+```
+
+---
+
+### 2.11 Recursive Folder Upload & Conflict Resolution Flow
+
+When a user drops an entire local directory or invokes `teledrive upload <path_to_dir>`, TeleDrive walks the local filesystem hierarchy, ensures matching Virtual Folders exist in SQLite, handles name collisions according to the chosen strategy, and streams files sequentially into Telegram.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Web Client / CLI
+    participant App as Upload Coordinator
+    participant DB as SQLite Virtual FS
+    participant TG as Telegram Storage Channel
+
+    User->>App: Upload directory tree (drag-and-drop / CLI)
+    loop Each Local Directory
+        App->>DB: GetOrCreateFolder(name, parent_folder_id)
+        DB-->>App: folder_id
+    end
+    loop Each Local File
+        App->>DB: Check if file name exists in target folder_id
+        alt Name Collision Detected
+            App->>User: Request Conflict Strategy (Replace, Keep Both, Skip)
+            User-->>App: Selected Strategy
+            alt Strategy == Keep Both
+                App->>App: Generate unique name "file (1).ext"
+            else Strategy == Replace
+                App->>DB: SoftDelete existing colliding file
+            else Strategy == Skip
+                Note over App: Skip file upload
+            end
+        end
+        opt Upload Proceeding
+            App->>TG: Stream 512KB MTProto parts sequentially
+            App->>DB: CreateFileWithID(name, folder_id, size, telegram_ids)
+        end
+    end
+    App-->>User: Complete (all items processed)
+```
+
+---
+
 ## 3. Database Schema (SQLite)
 
 ```sql
@@ -410,6 +481,7 @@ Following the Ponytail principle (minimal files, zero unnecessary abstractions):
 
 ```
 teledrive/
+├── CHANGELOG.md
 ├── CONTEXT.md
 ├── ARCHITECTURE.md
 ├── SECURITY.md
@@ -430,18 +502,21 @@ teledrive/
 │       ├── 0009-zero-build-embedded-modern-ui.md
 │       ├── 0010-database-snapshots-and-rolling-retention.md
 │       ├── 0011-npm-distribution-wrapper.md
-│       ├── 0012-signed-session-token.md
+│       ├── 0012-storage-channel-discovery-and-onboarding.md
 │       ├── 0013-zero-knowledge-seekable-stream-encryption.md
-│       └── 0014-embedded-webdav-gateway.md
+│       ├── 0014-embedded-webdav-gateway.md
+│       ├── 0015-virtual-folder-sharing-and-jailed-guest-traversal.md
+│       └── 0016-recursive-folder-upload-and-in-app-self-update.md
 ├── bin/
 │   └── teledrive.js             # Zero-dependency npm launcher wrapper
 ├── cmd/
 │   └── teledrive/
-│       ├── main.go              # CLI router (server, login, upload, list, backup)
+│       ├── main.go              # CLI router (server, login, upload, list, backup, restore, update)
 │       └── commands.go          # Subcommand implementations
 ├── internal/
 │   ├── app/
-│   │   └── config.go            # Minimal configuration loader
+│   │   ├── config.go            # Minimal configuration loader
+│   │   └── version.go           # Version identifier constant
 │   ├── crypto/
 │   │   ├── aes.go               # AES-256-GCM encryption helpers (session string)
 │   │   ├── session.go           # HMAC-SHA256 signed session tokens
@@ -456,6 +531,9 @@ teledrive/
 │   │   ├── uploader.go          # 512KB MTProto part uploader
 │   │   ├── downloader.go        # Range-aware MTProto part streamer (with decryptor)
 │   │   └── limiter.go           # FloodWait backoff & rate queue
+│   ├── update/
+│   │   ├── updater.go           # GitHub Releases checker, binary unpacker & in-place update
+│   │   └── updater_test.go      # Semver parsing and asset resolution tests
 │   └── web/
 │       ├── server.go            # net/http ServeMux routes & middleware
 │       ├── handlers_drive.go    # File/folder operations & downloads/streams
@@ -463,6 +541,7 @@ teledrive/
 │       ├── handlers_trash.go    # Virtual trash restore, empty, and auto-purge
 │       ├── handlers_share.go    # Public /s/{token} & /api/shares management
 │       ├── handlers_snapshot.go # Web snapshot history & restore
+│       ├── handlers_system.go   # In-app update check/apply & changelog endpoints
 │       ├── webdav.go            # WebDAV FileSystem bridge (/webdav)
 │       └── static/              # Embedded UI assets (CSS design tokens, Lucide SVG, Vanilla JS)
 ├── package.json                 # npm metadata & bin entry
