@@ -254,8 +254,11 @@ func (m *ClientManager) DownloadSnapshotByID(ctx context.Context, messageID int,
 	return m.DownloadFull(ctx, targetDoc.ID, targetDoc.AccessHash, w)
 }
 
-// DeleteSnapshotByID removes a specific snapshot message from the Storage Channel.
-func (m *ClientManager) DeleteSnapshotByID(ctx context.Context, messageID int) error {
+// DeleteMessages deletes one or more messages from the Storage Channel.
+func (m *ClientManager) DeleteMessages(ctx context.Context, messageIDs ...int) error {
+	if len(messageIDs) == 0 {
+		return nil
+	}
 	channelID, accessHash, err := m.StorageChannel()
 	if err != nil {
 		return err
@@ -266,9 +269,14 @@ func (m *ClientManager) DeleteSnapshotByID(ctx context.Context, messageID int) e
 			ChannelID:  channelID,
 			AccessHash: accessHash,
 		},
-		ID: []int{messageID},
+		ID: messageIDs,
 	})
 	return err
+}
+
+// DeleteSnapshotByID removes a specific snapshot message from the Storage Channel.
+func (m *ClientManager) DeleteSnapshotByID(ctx context.Context, messageID int) error {
+	return m.DeleteMessages(ctx, messageID)
 }
 
 // RestoreLatestSnapshot searches the Storage Channel for the newest backup snapshot and restores it.

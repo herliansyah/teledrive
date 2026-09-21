@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"teledrive/internal/crypto"
 	"teledrive/internal/telegram"
 )
 
@@ -81,6 +82,9 @@ func (s *Server) handleUploadChunk(w http.ResponseWriter, r *http.Request) {
 	partsPerChunk := ClientChunkSize / telegram.PartSize // 10
 	basePartIndex := chunkIndex * partsPerChunk
 
+	// Derive file stream encryption key and IV using session.ID
+	encKey, encIV := crypto.DeriveFileStreamKeyAndIV(s.cfg.SecretKey, session.ID)
+
 	ctx := r.Context()
 	for offset := 0; offset < len(chunkData); offset += telegram.PartSize {
 		end := offset + telegram.PartSize
@@ -94,7 +98,15 @@ func (s *Server) handleUploadChunk(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		if err := s.tg.UploadPart(ctx, session.TelegramFileID, currentPartIndex, session.TotalParts, partSlice, s.limiter); err != nil {
+		// Encrypt part slice at exact byte offset in file
+		fileByteOffset := int64(currentPartIndex) * int64(telegram.PartSize)
+		encSlice, encErr := crypto.TransformBytes(partSlice, encKey, encIV, fileByteOffset)
+		if encErr != nil {
+			http.Error(w, fmt.Sprintf("encrypt part %d: %v", currentPartIndex, encErr), http.StatusInternalServerError)
+			return
+		}
+
+		if err := s.tg.UploadPart(ctx, session.TelegramFileID, currentPartIndex, session.TotalParts, encSlice, s.limiter); err != nil {
 			http.Error(w, fmt.Sprintf("upload MTProto part %d: %v", currentPartIndex, err), http.StatusInternalServerError)
 			return
 		}
@@ -128,7 +140,8 @@ func (s *Server) handleUploadComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, err := s.db.CreateFile(
+	file, err := s.db.CreateFileWithID(
+		session.ID,
 		session.FolderID,
 		session.Name,
 		session.Size,
@@ -137,6 +150,7 @@ func (s *Server) handleUploadComplete(w http.ResponseWriter, r *http.Request) {
 		strconv.FormatInt(docID, 10),
 		strconv.FormatInt(accessHash, 10),
 		"",
+		1, // is_encrypted = 1
 	)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("save file metadata: %v", err), http.StatusInternalServerError)

@@ -7,36 +7,45 @@ TeleDrive is a single-binary cloud storage system that bridges a web interface a
 ## 1. System Overview
 
 ```
-+---------------------------------------------------------------------------------+
-|                                TeleDrive Host                                   |
-|                                                                                 |
-|  +--------------------------+   +-------------------------+   +-------------------+  |
-|  |     Web UI (Browser)     |   |   Embedded Dashboard    |   |     CLI Tool      |  |
-|  | (HTML5/Vanilla/CSS/SVG)  |<->| (net/http + templates)  |<->| (teledrive login) |  |
-|  +--------------------------+   +-------------------------+   +-------------------+  |
-|                                         |                                       |
-|                                         v                                       |
-|                        +---------------------------------+                      |
-|                        |       Drive Core Engine         |                      |
-|                        | - Virtual Folder Tree           |                      |
-|                        | - Resumable Upload Coordinator  |                      |
-|                        | - Range Request Streamer        |                      |
-|                        | - Share Link Authorizer         |                      |
-|                        +---------------------------------+                      |
-|                               |                   |                             |
-|                               v                   v                             |
-|                  +----------------------+  +---------------------+              |
-|                  | SQLite Metadata (WAL)|  | Telegram MTProto    |              |
-|                  | - modernc.org/sqlite |  | - gotd/td client    |              |
-|                  | - AES-GCM Sessions   |  | - 512KB Part Worker |              |
-|                  +----------------------+  +---------------------+              |
-+-------------------------------------------------------|-------------------------+
-                                                        | MTProto TCP/TLS
-                                                        v
-                                          +---------------------------+
-                                          | Telegram Cloud Platform   |
-                                          | (Storage Channel Vault)   |
-                                          +---------------------------+
++---------------------------------------------------------------------------------------------------+
+|                                          TeleDrive Host                                           |
+|                                                                                                   |
+|  +--------------------+   +-----------------------+   +-------------------+   +----------------+  |
+|  |  Web UI (Browser)  |   |  WebDAV Client (OS)   |   |   CLI Commands    |   | Share Visitor  |  |
+|  | (Vanilla HTML/CSS) |   | (Win/macOS/davfs/rcl) |   | (upload/download) |   |  (/s/{token})  |  |
+|  +--------------------+   +-----------------------+   +-------------------+   +----------------+  |
+|            |                          |                         |                     |           |
+|            v                          v                         v                     v           |
+|  +--------------------+   +-----------------------+   +-------------------+   +----------------+  |
+|  |  HTTP Web Handler  |   |    WebDAV Gateway     |   |   CLI Execution   |   | Share Handler  |  |
+|  | (Signed HMAC-SHA)  |   | (Basic Auth /webdav)  |   |  (Local Secret)   |   | (Rate-Limited) |  |
+|  +--------------------+   +-----------------------+   +-------------------+   +----------------+  |
+|            |                          |                         |                     |           |
+|            +--------------------------+------------+------------+---------------------+           |
+|                                                    |                                              |
+|                                                    v                                              |
+|                                   +---------------------------------+                             |
+|                                   |       Drive Core Engine         |                             |
+|                                   | - Virtual Folder Tree & Trash   |                             |
+|                                   | - Zero-Knowledge AES-CTR Stream |                             |
+|                                   | - Resumable Upload Coordinator  |                             |
+|                                   | - Range Request Streamer (206)  |                             |
+|                                   +---------------------------------+                             |
+|                                          |                   |                                    |
+|                                          v                   v                                    |
+|                             +----------------------+  +---------------------+                     |
+|                             | SQLite Metadata (WAL)|  | Telegram MTProto    |                     |
+|                             | - modernc.org/sqlite |  | - gotd/td client    |                     |
+|                             | - Soft-delete Trash  |  | - 512KB Part Worker |                     |
+|                             | - AES-GCM Sessions   |  | - FLOOD_WAIT Backoff|                     |
+|                             +----------------------+  +---------------------+                     |
++------------------------------------------------------------------|--------------------------------+
+                                                                   | MTProto TCP/TLS
+                                                                   v
+                                                     +---------------------------+
+                                                     | Telegram Cloud Platform   |
+                                                     | (Storage Channel Vault)   |
+                                                     +---------------------------+
 ```
 
 ---
@@ -152,6 +161,126 @@ sequenceDiagram
 
 ---
 
+### 2.5 WebDAV Gateway Flow
+
+TeleDrive implements `golang.org/x/net/webdav.FileSystem` over SQLite and MTProto, permitting native OS mounting (Windows Explorer, macOS Finder, Linux `davfs2`, `rclone`) via standard HTTP Basic Authentication.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor OS as OS WebDAV Client (Explorer/Finder)
+    participant WebDAV as WebDAV Gateway (/webdav)
+    participant Auth as HTTP Basic Auth Validator
+    participant DB as SQLite Virtual FS
+    participant TG as Telegram MTProto
+
+    OS->>WebDAV: PROPFIND /webdav/
+    WebDAV->>Auth: Validate admin credentials
+    Auth-->>WebDAV: Authenticated
+    WebDAV->>DB: Resolve root folder & list items (deleted_at IS NULL)
+    WebDAV-->>OS: 207 Multi-Status (XML directory listing)
+
+    opt Read/Stream File
+        OS->>WebDAV: GET /webdav/Documents/report.pdf
+        WebDAV->>DB: ResolvePath("/Documents/report.pdf")
+        WebDAV->>TG: Stream 512KB parts (decrypt on-the-fly if is_encrypted)
+        TG-->>OS: HTTP 200 / 206 stream bytes
+    end
+
+    opt Write/Upload File
+        OS->>WebDAV: PUT /webdav/Documents/new.pdf
+        WebDAV->>WebDAV: Stream chunks, encrypt parts with AES-CTR
+        WebDAV->>TG: upload.saveBigFilePart + sendMedia
+        WebDAV->>DB: CreateFileWithID (parent folder, size, encrypted=1)
+        WebDAV-->>OS: 201 Created
+    end
+```
+
+---
+
+### 2.6 Zero-Knowledge Seekable Stream Encryption Flow
+
+To prevent Telegram or intermediate proxies from inspecting content while preserving real-time video seeking, TeleDrive uses AES-128/256-CTR with 1-to-1 byte parity and zero size expansion.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Browser / Media Player
+    participant Engine as TeleDrive Stream Engine
+    participant Crypto as AES-CTR Stream Cipher
+    participant TG as Telegram Storage Channel
+
+    Note over Client,Engine: Range Request: bytes=1048576-2097151 (Part 2 to 3)
+    Client->>Engine: GET /api/files/{id}/stream (Range header)
+    Engine->>Engine: Derive stream key & initial IV from secret_key + file_id
+    Engine->>TG: upload.getFile (offset=1048576, limit=1048576)
+    TG-->>Engine: Raw encrypted MTProto bytes
+    Engine->>Crypto: Seek(offset=1048576) -> Adjust 128-bit counter by (1048576/16)
+    Crypto-->>Engine: Decrypted plaintext byte stream
+    Engine-->>Client: 206 Partial Content (Immediate O(1) seekable video)
+```
+
+---
+
+### 2.7 Virtual Trash Staging & Automated Purge Flow
+
+Deletions do not destroy data instantly. Soft-deleted items are marked with `deleted_at`, hidden from active views and WebDAV, and permanently purged after 30 days.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Dashboard / WebDAV
+    participant Web as TeleDrive API
+    participant DB as SQLite Virtual FS
+    participant Worker as Trash Purge Worker (24h)
+    participant TG as Telegram Storage Channel
+
+    User->>Web: DELETE /api/files/{id}
+    Web->>DB: SoftDeleteFile(id) -> SET deleted_at = CURRENT_TIMESTAMP
+    Web-->>User: 200 OK (Moved to Trash)
+
+    opt User Restores File
+        User->>Web: POST /api/trash/{id}/restore
+        Web->>DB: RestoreFile(id) -> SET deleted_at = NULL
+    end
+
+    opt Automated 30-Day Purge
+        Worker->>DB: ListTrash(older_than=30 days)
+        loop Each Expired File
+            Worker->>TG: DeleteMessages(channel_id, telegram_message_id)
+            Worker->>DB: PurgeFile(id) -> DELETE FROM files WHERE id = ?
+        end
+    end
+```
+
+---
+
+### 2.8 HMAC-SHA256 Signed Session Flow
+
+Stateless, tamper-proof session tokens authenticate web requests without requiring server-side session table lookups.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Browser as Web Browser
+    participant Auth as TeleDrive Auth Handler
+    participant Crypto as Crypto Package (HMAC-SHA256)
+
+    Browser->>Auth: POST /api/auth/login (password)
+    Auth->>Auth: Compare password with TELEDRIVE_ADMIN_PASSWORD
+    Auth->>Crypto: GenerateSignedSession(username, 30 days, secret_key)
+    Crypto-->>Auth: token = base64(payload) + "." + base64(signature)
+    Auth-->>Browser: Set-Cookie: teledrive_session=token (HttpOnly, SameSite=Lax)
+
+    Browser->>Auth: GET /api/files (Cookie: teledrive_session)
+    Auth->>Crypto: ValidateSignedSession(token, secret_key)
+    Crypto->>Crypto: Constant-time HMAC comparison + expiry check
+    Crypto-->>Auth: Valid (user=admin)
+    Auth-->>Browser: 200 OK (Authorized)
+```
+
+---
+
 ## 3. Database Schema (SQLite)
 
 ```sql
@@ -161,9 +290,11 @@ CREATE TABLE folders (
     parent_id TEXT NULL REFERENCES folders(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME NULL
 );
 CREATE INDEX idx_folders_parent ON folders(parent_id);
+CREATE INDEX idx_folders_deleted ON folders(deleted_at);
 
 -- Virtual Files mapped to Telegram objects
 CREATE TABLE files (
@@ -176,11 +307,14 @@ CREATE TABLE files (
     telegram_file_id TEXT NOT NULL,
     telegram_access_hash TEXT NOT NULL,
     sha256 TEXT,
+    is_encrypted INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME NULL
 );
 CREATE INDEX idx_files_folder ON files(folder_id);
 CREATE INDEX idx_files_name ON files(name);
+CREATE INDEX idx_files_deleted ON files(deleted_at);
 
 -- In-flight resumable upload sessions
 CREATE TABLE upload_sessions (
@@ -243,32 +377,41 @@ teledrive/
 │       ├── 0008-primary-account-tos-safe-mode.md
 │       ├── 0009-zero-build-embedded-modern-ui.md
 │       ├── 0010-database-snapshots-and-rolling-retention.md
-│       └── 0011-npm-distribution-wrapper.md
+│       ├── 0011-npm-distribution-wrapper.md
+│       ├── 0012-signed-session-token.md
+│       ├── 0013-zero-knowledge-seekable-stream-encryption.md
+│       └── 0014-embedded-webdav-gateway.md
 ├── bin/
 │   └── teledrive.js             # Zero-dependency npm launcher wrapper
 ├── cmd/
 │   └── teledrive/
-│       └── main.go              # CLI router (server, login, upload, list, backup)
+│       ├── main.go              # CLI router (server, login, upload, list, backup)
+│       └── commands.go          # Subcommand implementations
 ├── internal/
 │   ├── app/
 │   │   └── config.go            # Minimal configuration loader
 │   ├── crypto/
-│   │   └── aes.go               # AES-256-GCM encryption helpers
+│   │   ├── aes.go               # AES-256-GCM encryption helpers (session string)
+│   │   ├── session.go           # HMAC-SHA256 signed session tokens
+│   │   └── stream.go            # AES-CTR seekable stream cipher (zero-knowledge)
 │   ├── db/
-│   │   ├── db.go                # SQLite init (WAL mode)
-│   │   ├── files.go             # Virtual folder & file CRUD
+│   │   ├── db.go                # SQLite init (WAL mode & schema migrations)
+│   │   ├── files.go             # Virtual folder, file, trash, and VFS CRUD
 │   │   └── backup.go            # Snapshot export & restore
 │   ├── telegram/
 │   │   ├── client.go            # gotd/td connection manager
 │   │   ├── auth.go              # CLI interactive login wizard
 │   │   ├── uploader.go          # 512KB MTProto part uploader
-│   │   ├── downloader.go        # Range-aware MTProto part streamer
+│   │   ├── downloader.go        # Range-aware MTProto part streamer (with decryptor)
 │   │   └── limiter.go           # FloodWait backoff & rate queue
 │   └── web/
 │       ├── server.go            # net/http ServeMux routes & middleware
-│       ├── handlers_drive.go    # File/folder operations & uploads
+│       ├── handlers_drive.go    # File/folder operations & downloads/streams
+│       ├── handlers_upload.go   # Resumable chunked upload endpoints
+│       ├── handlers_trash.go    # Virtual trash restore, empty, and auto-purge
 │       ├── handlers_share.go    # Public /s/{token} & /api/shares management
 │       ├── handlers_snapshot.go # Web snapshot history & restore
+│       ├── webdav.go            # WebDAV FileSystem bridge (/webdav)
 │       └── static/              # Embedded UI assets (CSS design tokens, Lucide SVG, Vanilla JS)
 ├── package.json                 # npm metadata & bin entry
 ├── go.mod

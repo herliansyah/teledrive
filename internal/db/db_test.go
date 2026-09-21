@@ -88,3 +88,84 @@ func TestDB_FolderAndFileOperations(t *testing.T) {
 		t.Fatalf("File query after folder deletion failed: %v", err)
 	}
 }
+
+func TestDB_VirtualTrash(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "trash_test.db")
+
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open test database: %v", err)
+	}
+	defer database.Close()
+
+	folder, err := database.CreateFolder("Documents", nil)
+	if err != nil {
+		t.Fatalf("CreateFolder failed: %v", err)
+	}
+
+	file, err := database.CreateFile(&folder.ID, "contract.pdf", 5000, "application/pdf", 101, "f1", "h1", "sha1")
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+
+	// 1. Initially visible
+	files, err := database.ListFiles(&folder.ID)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("Expected 1 active file, got %d", len(files))
+	}
+
+	// 2. Soft delete file
+	if err := database.SoftDeleteFile(file.ID); err != nil {
+		t.Fatalf("SoftDeleteFile failed: %v", err)
+	}
+
+	// 3. File should disappear from ListFiles and SearchFiles
+	files, _ = database.ListFiles(&folder.ID)
+	if len(files) != 0 {
+		t.Fatalf("Expected 0 active files after soft delete, got %d", len(files))
+	}
+	searchResults, _ := database.SearchFiles("contract")
+	if len(searchResults) != 0 {
+		t.Fatalf("Expected 0 search results after soft delete, got %d", len(searchResults))
+	}
+
+	// 4. File should appear in ListTrash
+	trashedFolders, trashedFiles, err := database.ListTrash()
+	if err != nil || len(trashedFiles) != 1 || len(trashedFolders) != 0 {
+		t.Fatalf("Expected 1 trashed file and 0 trashed folders, got %d files, %d folders", len(trashedFiles), len(trashedFolders))
+	}
+
+	// 5. Restore file
+	if err := database.RestoreFile(file.ID); err != nil {
+		t.Fatalf("RestoreFile failed: %v", err)
+	}
+	files, _ = database.ListFiles(&folder.ID)
+	if len(files) != 1 {
+		t.Fatalf("Expected file restored to active list, got %d", len(files))
+	}
+
+	// 6. Soft delete folder cascades to its contents
+	if err := database.SoftDeleteFolder(folder.ID); err != nil {
+		t.Fatalf("SoftDeleteFolder failed: %v", err)
+	}
+	activeFolders, _ := database.ListFolders(nil)
+	if len(activeFolders) != 0 {
+		t.Fatalf("Expected 0 active folders after soft delete, got %d", len(activeFolders))
+	}
+	files, _ = database.ListFiles(&folder.ID)
+	if len(files) != 0 {
+		t.Fatalf("Expected 0 active files inside trashed folder, got %d", len(files))
+	}
+
+	// 7. Empty trash
+	deletedFiles, err := database.EmptyTrash()
+	if err != nil || len(deletedFiles) != 1 {
+		t.Fatalf("Expected 1 file permanently deleted on EmptyTrash, got %d", len(deletedFiles))
+	}
+	trashedFolders, trashedFiles, _ = database.ListTrash()
+	if len(trashedFolders) != 0 || len(trashedFiles) != 0 {
+		t.Fatalf("Expected empty trash, got %d folders, %d files", len(trashedFolders), len(trashedFiles))
+	}
+}
+
