@@ -2033,7 +2033,7 @@ async function openChangelogModal() {
         const res = await fetch("/api/changelog");
         if (!res.ok) throw new Error("Could not load changelog");
         const data = await res.json();
-        const ver = data.version || "1.5.0";
+        const ver = data.version || "1.6.0";
         if (verTag) verTag.innerText = `Installed: v${ver}`;
         body.innerHTML = renderChangelog(data.content, ver);
     } catch (err) {
