@@ -22,8 +22,15 @@ import (
 	"teledrive/internal/web"
 )
 
-func runLogin(cfg *app.Config) {
+func runLogin(cfg *app.Config, args []string) {
 	fmt.Println("=== TeleDrive Telegram MTProto Authentication Wizard ===")
+	forceReauth := false
+	for _, arg := range args {
+		if arg == "--force" || arg == "-f" || arg == "--reauth" {
+			forceReauth = true
+		}
+	}
+
 	database := openDatabase(cfg)
 	defer database.Close()
 
@@ -82,7 +89,7 @@ func runLogin(cfg *app.Config) {
 
 	ctx := context.Background()
 	err := mgr.Run(ctx, func(runCtx context.Context) error {
-		return mgr.AuthenticateInteractive(runCtx, reader, cfg.DBPath)
+		return mgr.AuthenticateInteractive(runCtx, reader, cfg.DBPath, forceReauth)
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Login error: %v\n", err)
@@ -92,7 +99,75 @@ func runLogin(cfg *app.Config) {
 	fmt.Println("TeleDrive is successfully paired with Telegram! You can now run `teledrive server`.")
 }
 
+func runLogout(cfg *app.Config, args []string) {
+	fmt.Println("=== TeleDrive Telegram MTProto Disconnect & Logout ===")
+	clean := false
+	for _, arg := range args {
+		if arg == "--clean" || arg == "-c" {
+			clean = true
+		}
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	if clean {
+		fmt.Println("\n⚠️  WARNING: You specified the --clean flag.")
+		fmt.Println("This will revoke the MTProto session AND permanently delete all virtual folders,")
+		fmt.Println("files, share links, and upload sessions from your local SQLite database.")
+		fmt.Print("Are you absolutely sure you want to proceed? [y/N]: ")
+		ans, _ := reader.ReadString('\n')
+		if strings.ToLower(strings.TrimSpace(ans)) != "y" && strings.ToLower(strings.TrimSpace(ans)) != "yes" {
+			fmt.Println("Logout canceled.")
+			return
+		}
+	}
+
+	database := openDatabase(cfg)
+	defer database.Close()
+
+	appID := cfg.TelegramAppID
+	appHash := cfg.TelegramAppHash
+	if appID == 0 {
+		if stored, err := database.GetSetting("telegram_app_id"); err == nil && stored != "" {
+			appID, _ = strconv.Atoi(stored)
+		}
+	}
+	if appHash == "" {
+		if stored, err := database.GetSetting("telegram_app_hash"); err == nil && stored != "" {
+			appHash = stored
+		}
+	}
+
+	if appID != 0 && appHash != "" {
+		mgr := telegram.NewClientManager(database, appID, appHash, cfg.SecretKey)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		_ = mgr.Run(ctx, func(runCtx context.Context) error {
+			return mgr.Disconnect(runCtx)
+		})
+	}
+
+	// Guarantee local cleanup even if offline or network timeout
+	_ = database.DeleteSetting("telegram_session")
+	_ = database.DeleteSetting("storage_channel_id")
+	_ = database.DeleteSetting("storage_channel_hash")
+
+	if clean {
+		if err := database.PurgeAllData(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error purging database data: %v\n", err)
+		} else {
+			fmt.Println("✓ All virtual files, folders, and metadata have been purged from local database.")
+		}
+	} else {
+		fmt.Println("✓ Local virtual files and folder structures have been preserved.")
+	}
+
+	fmt.Println("✓ Telegram MTProto session successfully disconnected.")
+	fmt.Println("  Run `teledrive login` when you are ready to connect a Telegram account.")
+}
+
 func runServer(cfg *app.Config) {
+
 	database := openDatabase(cfg)
 	defer database.Close()
 

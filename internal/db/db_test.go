@@ -206,3 +206,63 @@ func TestDB_VirtualTrash(t *testing.T) {
 	}
 }
 
+func TestDeleteSettingAndPurgeAllData(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open test database: %v", err)
+	}
+	defer database.Close()
+
+
+	// 1. Setting operations
+	if err := database.SetSetting("telegram_session", "secret-token"); err != nil {
+		t.Fatalf("SetSetting failed: %v", err)
+	}
+	val, err := database.GetSetting("telegram_session")
+	if err != nil || val != "secret-token" {
+		t.Fatalf("Expected 'secret-token', got %q (err: %v)", val, err)
+	}
+
+	if err := database.DeleteSetting("telegram_session"); err != nil {
+		t.Fatalf("DeleteSetting failed: %v", err)
+	}
+	_, err = database.GetSetting("telegram_session")
+	if err == nil {
+		t.Fatalf("Expected error after DeleteSetting, got nil")
+	}
+
+	// 2. Populate data and test PurgeAllData
+	_ = database.SetSetting("telegram_session", "session-val")
+	_ = database.SetSetting("storage_channel_id", "12345")
+	folder, err := database.CreateFolder("Folder to Purge", nil)
+	if err != nil {
+		t.Fatalf("CreateFolder failed: %v", err)
+	}
+	_, err = database.CreateFile(&folder.ID, "file.txt", 100, "text/plain", 1, "tg_file", "tg_hash", "hash", 0)
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+
+	if err := database.PurgeAllData(); err != nil {
+		t.Fatalf("PurgeAllData failed: %v", err)
+	}
+
+	folders, _ := database.ListFolders(nil)
+	if len(folders) != 0 {
+		t.Fatalf("Expected 0 folders after PurgeAllData, got %d", len(folders))
+	}
+	files, _ := database.ListFiles(nil)
+	if len(files) != 0 {
+		t.Fatalf("Expected 0 files after PurgeAllData, got %d", len(files))
+	}
+	if _, err := database.GetSetting("telegram_session"); err == nil {
+		t.Fatalf("Expected telegram_session to be purged")
+	}
+	if _, err := database.GetSetting("storage_channel_id"); err == nil {
+		t.Fatalf("Expected storage_channel_id to be purged")
+	}
+}
+
+

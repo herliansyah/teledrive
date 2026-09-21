@@ -45,8 +45,8 @@
             <button class="btn-icon" id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle Dark/Light Mode">
                 <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
             </button>
-            <a href="/logout" class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem; text-decoration: none;">
-                Sign Out
+            <a href="/logout" class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem; text-decoration: none;" title="Sign out of Web Dashboard session">
+                Sign Out (Web)
             </a>
         </div>
     </header>
@@ -90,21 +90,26 @@
                 </a>
             </nav>
 
-            <div class="sidebar-status-widget">
+            <div class="sidebar-status-widget" id="tg-status-widget">
                 <div class="status-indicator">
-                    <span class="status-dot"></span>
-                    <span>MTProto Online</span>
+                    <span class="status-dot" id="tg-status-dot"></span>
+                    <span id="tg-status-title">Checking MTProto...</span>
                 </div>
                 <div style="color: var(--text-secondary); font-size: 0.775rem; line-height: 1.4;">
-                    <p><strong>Storage Channel:</strong> Connected</p>
-                    <p style="margin-top: 4px;"><strong>Protection:</strong> Safe Mode Active</p>
+                    <p id="tg-account-line"><strong>Account:</strong> Checking...</p>
+                    <p id="tg-channel-line" style="margin-top: 4px;"><strong>Channel:</strong> Connecting...</p>
+                    <div id="tg-disconnect-container" style="margin-top: 8px; display: none;">
+                        <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.725rem; width: 100%; border-color: rgba(239, 68, 68, 0.4); color: var(--danger);" onclick="confirmDisconnectTelegram()" title="Revoke Telegram session and unlink account">
+                            Disconnect Telegram
+                        </button>
+                    </div>
                 </div>
             </div>
 
             <div style="padding: 10px 4px 4px; font-size: 0.725rem; color: var(--text-muted); line-height: 1.5; border-top: 1px solid var(--border-subtle);">
                 <div style="display: flex; align-items: center; justify-content: space-between;">
                     <div>
-                        <a href="javascript:void(0)" onclick="openChangelogModal()" style="color: var(--primary); text-decoration: none; font-weight: 600;" title="Click to view Changelog">TeleDrive v1.5.0</a> &bull; MIT License
+                        <a href="javascript:void(0)" onclick="openChangelogModal()" style="color: var(--primary); text-decoration: none; font-weight: 600;" title="Click to view Changelog">TeleDrive v1.6.0</a> &bull; MIT License
                     </div>
                 </div>
                 <div id="sidebar-update-badge" style="display: none; margin-top: 4px;">
@@ -120,8 +125,19 @@
 
         <!-- Main Workspace -->
         <main class="content-area">
+            <!-- Telegram Disconnected Warning Banner -->
+            <div id="telegram-disconnected-banner" style="display: none; background: rgba(239, 68, 68, 0.12); border: 1px solid var(--danger); color: var(--danger); padding: 12px 16px; border-radius: var(--radius-md); margin-bottom: 16px; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <svg class="icon icon-sm" style="flex-shrink: 0;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    <span style="font-size: 0.85rem; line-height: 1.4;">
+                        <strong>Telegram Disconnected:</strong> TeleDrive is currently unlinked from Telegram. File uploads and streaming are unavailable. Run <code>teledrive login</code> in your terminal to pair an account.
+                    </span>
+                </div>
+            </div>
+
             <!-- Drive Content Tab -->
             <div id="drive-content-container">
+
                 <div id="dropzone" class="dropzone">
                     <div style="color: var(--primary);">
                         <svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -627,7 +643,7 @@
                 Loading changelog...
             </div>
             <div class="modal-footer" style="justify-content: space-between;">
-                <span id="changelog-version-tag" style="font-size: 0.75rem; color: var(--text-muted);">Installed: v1.5.0</span>
+                <span id="changelog-version-tag" style="font-size: 0.75rem; color: var(--text-muted);">Installed: v1.6.0</span>
                 <button class="btn btn-secondary" onclick="closeChangelogModal()">Close</button>
             </div>
         </div>
@@ -652,7 +668,7 @@
                 <div style="background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 12px;">
                     <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px;">
                         <span style="color: var(--text-muted);">Installed Version:</span>
-                        <strong id="update-current-ver">v1.5.0</strong>
+                        <strong id="update-current-ver">v1.6.0</strong>
                     </div>
                     <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
                         <span style="color: var(--text-muted);">Latest Version:</span>
