@@ -28,6 +28,10 @@ func (s *Server) handleGetChangelog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(content) == 0 {
+		content, _ = contentFS.ReadFile("static/CHANGELOG.md")
+	}
+
+	if len(content) == 0 {
 		content = []byte(fmt.Sprintf("# Changelog\n\nTeleDrive v%s\n\nFor release history, visit: https://github.com/herliansyah/teledrive/releases", app.Version))
 	}
 

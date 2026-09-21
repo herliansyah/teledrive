@@ -112,3 +112,8 @@ _Avoid_: Collision handler, duplication rule, overwrite mode
 The automated check against the official release repository that downloads the matching platform binary, safely substitutes the live executable, and triggers a graceful process restart.
 _Avoid_: OTA update, app patch, live upgrade
 
+**Changelog Viewer**:
+The in-app interactive modal displaying structured release history, version tags, and categorized change items directly from embedded documentation.
+_Avoid_: Release log, update popup, what's new dialog
+
+
