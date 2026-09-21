@@ -5,29 +5,35 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"path"
+	"strings"
 	"time"
 )
 
 type Folder struct {
-	ID        string    `json:"id"`
-	ParentID  *string   `json:"parent_id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        string     `json:"id"`
+	ParentID  *string    `json:"parent_id"`
+	Name      string     `json:"name"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }
 
 type File struct {
-	ID                 string    `json:"id"`
-	FolderID           *string   `json:"folder_id"`
-	Name               string    `json:"name"`
-	Size               int64     `json:"size"`
-	MimeType           string    `json:"mime_type"`
-	TelegramMessageID  int       `json:"telegram_message_id"`
-	TelegramFileID     string    `json:"telegram_file_id"`
-	TelegramAccessHash string    `json:"telegram_access_hash"`
-	SHA256             string    `json:"sha256"`
-	CreatedAt          time.Time `json:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	ID                 string     `json:"id"`
+	FolderID           *string    `json:"folder_id"`
+	Name               string     `json:"name"`
+	Size               int64      `json:"size"`
+	MimeType           string     `json:"mime_type"`
+	TelegramMessageID  int        `json:"telegram_message_id"`
+	TelegramFileID     string     `json:"telegram_file_id"`
+	TelegramAccessHash string     `json:"telegram_access_hash"`
+	SHA256             string     `json:"sha256"`
+	IsEncrypted        int        `json:"is_encrypted"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+	DeletedAt          *time.Time `json:"deleted_at,omitempty"`
 }
 
 type UploadSession struct {
@@ -53,11 +59,15 @@ type ShareLink struct {
 	CreatedAt     time.Time  `json:"created_at"`
 }
 
-// generateID produces a random 16-hex string ID.
-func generateID() string {
+// GenerateID produces a random 16-hex string ID.
+func GenerateID() string {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func generateID() string {
+	return GenerateID()
 }
 
 // CreateFolder adds a new virtual folder.
@@ -72,22 +82,22 @@ func (d *DB) CreateFolder(name string, parentID *string) (*Folder, error) {
 
 // GetFolder retrieves a single folder by ID.
 func (d *DB) GetFolder(id string) (*Folder, error) {
-	row := d.QueryRow("SELECT id, parent_id, name, created_at, updated_at FROM folders WHERE id = ?", id)
+	row := d.QueryRow("SELECT id, parent_id, name, created_at, updated_at, deleted_at FROM folders WHERE id = ?", id)
 	var f Folder
-	if err := row.Scan(&f.ID, &f.ParentID, &f.Name, &f.CreatedAt, &f.UpdatedAt); err != nil {
+	if err := row.Scan(&f.ID, &f.ParentID, &f.Name, &f.CreatedAt, &f.UpdatedAt, &f.DeletedAt); err != nil {
 		return nil, err
 	}
 	return &f, nil
 }
 
-// ListFolders lists subfolders inside parentID (or root if parentID is nil).
+// ListFolders lists subfolders inside parentID (or root if parentID is nil) excluding trashed folders.
 func (d *DB) ListFolders(parentID *string) ([]Folder, error) {
 	var rows *sql.Rows
 	var err error
 	if parentID == nil {
-		rows, err = d.Query("SELECT id, parent_id, name, created_at, updated_at FROM folders WHERE parent_id IS NULL ORDER BY name ASC")
+		rows, err = d.Query("SELECT id, parent_id, name, created_at, updated_at, deleted_at FROM folders WHERE parent_id IS NULL AND deleted_at IS NULL ORDER BY name ASC")
 	} else {
-		rows, err = d.Query("SELECT id, parent_id, name, created_at, updated_at FROM folders WHERE parent_id = ? ORDER BY name ASC", *parentID)
+		rows, err = d.Query("SELECT id, parent_id, name, created_at, updated_at, deleted_at FROM folders WHERE parent_id = ? AND deleted_at IS NULL ORDER BY name ASC", *parentID)
 	}
 	if err != nil {
 		return nil, err
@@ -97,7 +107,7 @@ func (d *DB) ListFolders(parentID *string) ([]Folder, error) {
 	var folders []Folder
 	for rows.Next() {
 		var f Folder
-		if err := rows.Scan(&f.ID, &f.ParentID, &f.Name, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.ParentID, &f.Name, &f.CreatedAt, &f.UpdatedAt, &f.DeletedAt); err != nil {
 			return nil, err
 		}
 		folders = append(folders, f)
@@ -134,51 +144,185 @@ func (d *DB) MoveFolder(id string, newParentID *string) error {
 	return err
 }
 
-// DeleteFolder deletes a folder and cascades to subfolders and files.
-func (d *DB) DeleteFolder(id string) error {
+// FindFolderByName locates an active (non-trashed) folder by its exact name under parentID.
+func (d *DB) FindFolderByName(name string, parentID *string) (*Folder, error) {
+	var row *sql.Row
+	if parentID == nil {
+		row = d.QueryRow("SELECT id, parent_id, name, created_at, updated_at, deleted_at FROM folders WHERE name = ? AND parent_id IS NULL AND deleted_at IS NULL", name)
+	} else {
+		row = d.QueryRow("SELECT id, parent_id, name, created_at, updated_at, deleted_at FROM folders WHERE name = ? AND parent_id = ? AND deleted_at IS NULL", name, *parentID)
+	}
+	var f Folder
+	if err := row.Scan(&f.ID, &f.ParentID, &f.Name, &f.CreatedAt, &f.UpdatedAt, &f.DeletedAt); err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
+// FindFileByName locates an active (non-trashed) file by its exact name under folderID.
+func (d *DB) FindFileByName(name string, folderID *string) (*File, error) {
+	var row *sql.Row
+	if folderID == nil {
+		row = d.QueryRow(`
+			SELECT id, folder_id, name, size, mime_type, telegram_message_id, telegram_file_id, telegram_access_hash, sha256, is_encrypted, created_at, updated_at, deleted_at
+			FROM files WHERE name = ? AND folder_id IS NULL AND deleted_at IS NULL
+		`, name)
+	} else {
+		row = d.QueryRow(`
+			SELECT id, folder_id, name, size, mime_type, telegram_message_id, telegram_file_id, telegram_access_hash, sha256, is_encrypted, created_at, updated_at, deleted_at
+			FROM files WHERE name = ? AND folder_id = ? AND deleted_at IS NULL
+		`, name, *folderID)
+	}
+	var f File
+	if err := row.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.MimeType, &f.TelegramMessageID, &f.TelegramFileID, &f.TelegramAccessHash, &f.SHA256, &f.IsEncrypted, &f.CreatedAt, &f.UpdatedAt, &f.DeletedAt); err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
+// ResolvePath resolves a virtual clean path (e.g. "/Projects/notes.txt") to a Folder, a File, or os.ErrNotExist.
+// Root path ("/" or "") returns (nil, nil, nil) representing the virtual root directory.
+func (d *DB) ResolvePath(virtualPath string) (*Folder, *File, error) {
+	cleaned := path.Clean("/" + virtualPath)
+	if cleaned == "/" || cleaned == "." {
+		return nil, nil, nil
+	}
+
+	parts := strings.Split(strings.Trim(cleaned, "/"), "/")
+	var currentParentID *string
+
+	for i, part := range parts {
+		isLast := (i == len(parts)-1)
+
+		if isLast {
+			if folder, err := d.FindFolderByName(part, currentParentID); err == nil {
+				return folder, nil, nil
+			}
+			if file, err := d.FindFileByName(part, currentParentID); err == nil {
+				return nil, file, nil
+			}
+			return nil, nil, os.ErrNotExist
+		}
+
+		folder, err := d.FindFolderByName(part, currentParentID)
+		if err != nil {
+			return nil, nil, os.ErrNotExist
+		}
+		currentParentID = &folder.ID
+	}
+
+	return nil, nil, os.ErrNotExist
+}
+
+// SoftDeleteFolder moves a folder and all its descendants to Virtual Trash.
+func (d *DB) SoftDeleteFolder(id string) error {
+	_, err := d.Exec("UPDATE folders SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	// Cascade soft-delete to all subfolders and files
+	_, _ = d.Exec(`
+		WITH RECURSIVE subfolders AS (
+			SELECT id FROM folders WHERE id = ?
+			UNION ALL
+			SELECT f.id FROM folders f JOIN subfolders s ON f.parent_id = s.id
+		)
+		UPDATE files SET deleted_at = CURRENT_TIMESTAMP WHERE folder_id IN (SELECT id FROM subfolders)
+	`, id)
+	_, _ = d.Exec(`
+		WITH RECURSIVE subfolders AS (
+			SELECT id FROM folders WHERE id = ?
+			UNION ALL
+			SELECT f.id FROM folders f JOIN subfolders s ON f.parent_id = s.id
+		)
+		UPDATE folders SET deleted_at = CURRENT_TIMESTAMP WHERE id IN (SELECT id FROM subfolders)
+	`, id)
+	return nil
+}
+
+// RestoreFolder restores a folder and its contents from Virtual Trash.
+func (d *DB) RestoreFolder(id string) error {
+	_, err := d.Exec("UPDATE folders SET deleted_at = NULL WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	_, _ = d.Exec(`
+		WITH RECURSIVE subfolders AS (
+			SELECT id FROM folders WHERE id = ?
+			UNION ALL
+			SELECT f.id FROM folders f JOIN subfolders s ON f.parent_id = s.id
+		)
+		UPDATE files SET deleted_at = NULL WHERE folder_id IN (SELECT id FROM subfolders)
+	`, id)
+	_, _ = d.Exec(`
+		WITH RECURSIVE subfolders AS (
+			SELECT id FROM folders WHERE id = ?
+			UNION ALL
+			SELECT f.id FROM folders f JOIN subfolders s ON f.parent_id = s.id
+		)
+		UPDATE folders SET deleted_at = NULL WHERE id IN (SELECT id FROM subfolders)
+	`, id)
+	return nil
+}
+
+// HardDeleteFolder permanently deletes a folder record from the database.
+func (d *DB) HardDeleteFolder(id string) error {
 	_, err := d.Exec("DELETE FROM folders WHERE id = ?", id)
 	return err
 }
 
-// CreateFile inserts a new file record linked to Telegram object metadata.
-func (d *DB) CreateFile(folderID *string, name string, size int64, mimeType string, msgID int, fileID, accessHash, sha256 string) (*File, error) {
-	id := generateID()
+// DeleteFolder defaults to soft-deleting the folder into Virtual Trash.
+func (d *DB) DeleteFolder(id string) error {
+	return d.SoftDeleteFolder(id)
+}
+
+// CreateFileWithID inserts a new file record with a specified ID.
+func (d *DB) CreateFileWithID(id string, folderID *string, name string, size int64, mimeType string, msgID int, fileID, accessHash, sha256 string, isEncrypted ...int) (*File, error) {
+	enc := 0
+	if len(isEncrypted) > 0 {
+		enc = isEncrypted[0]
+	}
 	_, err := d.Exec(`
-		INSERT INTO files (id, folder_id, name, size, mime_type, telegram_message_id, telegram_file_id, telegram_access_hash, sha256)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, folderID, name, size, mimeType, msgID, fileID, accessHash, sha256)
+		INSERT INTO files (id, folder_id, name, size, mime_type, telegram_message_id, telegram_file_id, telegram_access_hash, sha256, is_encrypted)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, folderID, name, size, mimeType, msgID, fileID, accessHash, sha256, enc)
 	if err != nil {
 		return nil, fmt.Errorf("create file record: %w", err)
 	}
 	return d.GetFile(id)
 }
 
+// CreateFile inserts a new file record linked to Telegram object metadata.
+func (d *DB) CreateFile(folderID *string, name string, size int64, mimeType string, msgID int, fileID, accessHash, sha256 string, isEncrypted ...int) (*File, error) {
+	return d.CreateFileWithID(generateID(), folderID, name, size, mimeType, msgID, fileID, accessHash, sha256, isEncrypted...)
+}
+
 // GetFile retrieves a file by ID.
 func (d *DB) GetFile(id string) (*File, error) {
 	row := d.QueryRow(`
-		SELECT id, folder_id, name, size, mime_type, telegram_message_id, telegram_file_id, telegram_access_hash, sha256, created_at, updated_at
+		SELECT id, folder_id, name, size, mime_type, telegram_message_id, telegram_file_id, telegram_access_hash, sha256, is_encrypted, created_at, updated_at, deleted_at
 		FROM files WHERE id = ?
 	`, id)
 	var f File
-	if err := row.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.MimeType, &f.TelegramMessageID, &f.TelegramFileID, &f.TelegramAccessHash, &f.SHA256, &f.CreatedAt, &f.UpdatedAt); err != nil {
+	if err := row.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.MimeType, &f.TelegramMessageID, &f.TelegramFileID, &f.TelegramAccessHash, &f.SHA256, &f.IsEncrypted, &f.CreatedAt, &f.UpdatedAt, &f.DeletedAt); err != nil {
 		return nil, err
 	}
 	return &f, nil
 }
 
-// ListFiles returns all files within a specific folder (or root if folderID is nil).
+// ListFiles returns all files within a specific folder excluding trashed files.
 func (d *DB) ListFiles(folderID *string) ([]File, error) {
 	var rows *sql.Rows
 	var err error
 	if folderID == nil {
 		rows, err = d.Query(`
-			SELECT id, folder_id, name, size, mime_type, telegram_message_id, telegram_file_id, telegram_access_hash, sha256, created_at, updated_at
-			FROM files WHERE folder_id IS NULL ORDER BY name ASC
+			SELECT id, folder_id, name, size, mime_type, telegram_message_id, telegram_file_id, telegram_access_hash, sha256, is_encrypted, created_at, updated_at, deleted_at
+			FROM files WHERE folder_id IS NULL AND deleted_at IS NULL ORDER BY name ASC
 		`)
 	} else {
 		rows, err = d.Query(`
-			SELECT id, folder_id, name, size, mime_type, telegram_message_id, telegram_file_id, telegram_access_hash, sha256, created_at, updated_at
-			FROM files WHERE folder_id = ? ORDER BY name ASC
+			SELECT id, folder_id, name, size, mime_type, telegram_message_id, telegram_file_id, telegram_access_hash, sha256, is_encrypted, created_at, updated_at, deleted_at
+			FROM files WHERE folder_id = ? AND deleted_at IS NULL ORDER BY name ASC
 		`, *folderID)
 	}
 	if err != nil {
@@ -189,7 +333,7 @@ func (d *DB) ListFiles(folderID *string) ([]File, error) {
 	var files []File
 	for rows.Next() {
 		var f File
-		if err := rows.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.MimeType, &f.TelegramMessageID, &f.TelegramFileID, &f.TelegramAccessHash, &f.SHA256, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.MimeType, &f.TelegramMessageID, &f.TelegramFileID, &f.TelegramAccessHash, &f.SHA256, &f.IsEncrypted, &f.CreatedAt, &f.UpdatedAt, &f.DeletedAt); err != nil {
 			return nil, err
 		}
 		files = append(files, f)
@@ -209,17 +353,34 @@ func (d *DB) MoveFile(id string, newFolderID *string) error {
 	return err
 }
 
-// DeleteFile removes a file record.
-func (d *DB) DeleteFile(id string) error {
+// SoftDeleteFile moves a file into Virtual Trash.
+func (d *DB) SoftDeleteFile(id string) error {
+	_, err := d.Exec("UPDATE files SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?", id)
+	return err
+}
+
+// RestoreFile restores a file from Virtual Trash.
+func (d *DB) RestoreFile(id string) error {
+	_, err := d.Exec("UPDATE files SET deleted_at = NULL WHERE id = ?", id)
+	return err
+}
+
+// HardDeleteFile permanently deletes a file record from the database.
+func (d *DB) HardDeleteFile(id string) error {
 	_, err := d.Exec("DELETE FROM files WHERE id = ?", id)
 	return err
 }
 
-// SearchFiles finds files matching a name query.
+// DeleteFile defaults to soft-deleting the file into Virtual Trash.
+func (d *DB) DeleteFile(id string) error {
+	return d.SoftDeleteFile(id)
+}
+
+// SearchFiles finds files matching a name query, excluding trashed files.
 func (d *DB) SearchFiles(query string) ([]File, error) {
 	rows, err := d.Query(`
-		SELECT id, folder_id, name, size, mime_type, telegram_message_id, telegram_file_id, telegram_access_hash, sha256, created_at, updated_at
-		FROM files WHERE name LIKE ? ORDER BY name ASC LIMIT 50
+		SELECT id, folder_id, name, size, mime_type, telegram_message_id, telegram_file_id, telegram_access_hash, sha256, is_encrypted, created_at, updated_at, deleted_at
+		FROM files WHERE name LIKE ? AND deleted_at IS NULL ORDER BY name ASC LIMIT 50
 	`, "%"+query+"%")
 	if err != nil {
 		return nil, err
@@ -229,12 +390,115 @@ func (d *DB) SearchFiles(query string) ([]File, error) {
 	var files []File
 	for rows.Next() {
 		var f File
-		if err := rows.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.MimeType, &f.TelegramMessageID, &f.TelegramFileID, &f.TelegramAccessHash, &f.SHA256, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.MimeType, &f.TelegramMessageID, &f.TelegramFileID, &f.TelegramAccessHash, &f.SHA256, &f.IsEncrypted, &f.CreatedAt, &f.UpdatedAt, &f.DeletedAt); err != nil {
 			return nil, err
 		}
 		files = append(files, f)
 	}
 	return files, rows.Err()
+}
+
+// ListTrash returns all folders and files currently marked as deleted.
+func (d *DB) ListTrash() ([]Folder, []File, error) {
+	folderRows, err := d.Query("SELECT id, parent_id, name, created_at, updated_at, deleted_at FROM folders WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")
+	if err != nil {
+		return nil, nil, err
+	}
+	defer folderRows.Close()
+
+	var folders []Folder
+	for folderRows.Next() {
+		var f Folder
+		if err := folderRows.Scan(&f.ID, &f.ParentID, &f.Name, &f.CreatedAt, &f.UpdatedAt, &f.DeletedAt); err != nil {
+			return nil, nil, err
+		}
+		folders = append(folders, f)
+	}
+
+	fileRows, err := d.Query(`
+		SELECT id, folder_id, name, size, mime_type, telegram_message_id, telegram_file_id, telegram_access_hash, sha256, is_encrypted, created_at, updated_at, deleted_at
+		FROM files WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC
+	`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer fileRows.Close()
+
+	var files []File
+	for fileRows.Next() {
+		var f File
+		if err := fileRows.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.MimeType, &f.TelegramMessageID, &f.TelegramFileID, &f.TelegramAccessHash, &f.SHA256, &f.IsEncrypted, &f.CreatedAt, &f.UpdatedAt, &f.DeletedAt); err != nil {
+			return nil, nil, err
+		}
+		files = append(files, f)
+	}
+
+	return folders, files, nil
+}
+
+// GetExpiredTrashFiles returns files in Virtual Trash older than cutoff duration.
+func (d *DB) GetExpiredTrashFiles(cutoff time.Time) ([]File, error) {
+	rows, err := d.Query(`
+		SELECT id, folder_id, name, size, mime_type, telegram_message_id, telegram_file_id, telegram_access_hash, sha256, is_encrypted, created_at, updated_at, deleted_at
+		FROM files WHERE deleted_at IS NOT NULL AND deleted_at < ?
+	`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []File
+	for rows.Next() {
+		var f File
+		if err := rows.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.MimeType, &f.TelegramMessageID, &f.TelegramFileID, &f.TelegramAccessHash, &f.SHA256, &f.IsEncrypted, &f.CreatedAt, &f.UpdatedAt, &f.DeletedAt); err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	return files, rows.Err()
+}
+
+// PurgeExpiredTrash permanently removes trashed folders and files older than cutoff.
+func (d *DB) PurgeExpiredTrash(cutoff time.Time) (int64, error) {
+	res1, err := d.Exec("DELETE FROM files WHERE deleted_at IS NOT NULL AND deleted_at < ?", cutoff)
+	if err != nil {
+		return 0, err
+	}
+	n1, _ := res1.RowsAffected()
+
+	res2, err := d.Exec("DELETE FROM folders WHERE deleted_at IS NOT NULL AND deleted_at < ?", cutoff)
+	if err != nil {
+		return n1, err
+	}
+	n2, _ := res2.RowsAffected()
+
+	return n1 + n2, nil
+}
+
+// EmptyTrash removes all items currently in Virtual Trash and returns the deleted files.
+func (d *DB) EmptyTrash() ([]File, error) {
+	rows, err := d.Query(`
+		SELECT id, folder_id, name, size, mime_type, telegram_message_id, telegram_file_id, telegram_access_hash, sha256, is_encrypted, created_at, updated_at, deleted_at
+		FROM files WHERE deleted_at IS NOT NULL
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []File
+	for rows.Next() {
+		var f File
+		if err := rows.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.MimeType, &f.TelegramMessageID, &f.TelegramFileID, &f.TelegramAccessHash, &f.SHA256, &f.IsEncrypted, &f.CreatedAt, &f.UpdatedAt, &f.DeletedAt); err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+
+	_, _ = d.Exec("DELETE FROM files WHERE deleted_at IS NOT NULL")
+	_, _ = d.Exec("DELETE FROM folders WHERE deleted_at IS NOT NULL")
+
+	return files, nil
 }
 
 // CreateUploadSession initializes an in-flight upload session.

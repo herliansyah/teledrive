@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS folders (
     parent_id TEXT NULL REFERENCES folders(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME NULL
 );
 CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id);
 
@@ -34,8 +35,10 @@ CREATE TABLE IF NOT EXISTS files (
     telegram_file_id TEXT NOT NULL,
     telegram_access_hash TEXT NOT NULL,
     sha256 TEXT,
+    is_encrypted INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME NULL
 );
 CREATE INDEX IF NOT EXISTS idx_files_folder ON files(folder_id);
 CREATE INDEX IF NOT EXISTS idx_files_name ON files(name);
@@ -90,6 +93,13 @@ func Open(path string) (*DB, error) {
 		_ = sdb.Close()
 		return nil, fmt.Errorf("initialize schema: %w", err)
 	}
+
+	// Run lightweight migrations for existing databases
+	_, _ = sdb.Exec("ALTER TABLE folders ADD COLUMN deleted_at DATETIME NULL")
+	_, _ = sdb.Exec("ALTER TABLE files ADD COLUMN deleted_at DATETIME NULL")
+	_, _ = sdb.Exec("ALTER TABLE files ADD COLUMN is_encrypted INTEGER DEFAULT 0")
+	_, _ = sdb.Exec("CREATE INDEX IF NOT EXISTS idx_folders_deleted ON folders(deleted_at)")
+	_, _ = sdb.Exec("CREATE INDEX IF NOT EXISTS idx_files_deleted ON files(deleted_at)")
 
 	return &DB{DB: sdb}, nil
 }

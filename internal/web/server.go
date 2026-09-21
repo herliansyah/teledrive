@@ -8,10 +8,13 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
+	"golang.org/x/net/webdav"
 	"teledrive/internal/app"
+	"teledrive/internal/crypto"
 	"teledrive/internal/db"
 	"teledrive/internal/telegram"
 )
@@ -66,8 +69,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /login", s.handleLoginSubmit)
 	s.mux.HandleFunc("GET /logout", s.handleLogout)
 
-	// Protected Dashboard
-	s.mux.HandleFunc("GET /", s.authMiddleware(s.handleDashboard))
+	// Protected Dashboard (exact root match)
+	s.mux.HandleFunc("GET /{$}", s.authMiddleware(s.handleDashboard))
 
 	// Protected Drive API
 	s.mux.HandleFunc("GET /api/folders", s.authMiddleware(s.handleListFolders))
@@ -102,16 +105,66 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/snapshots/{id}/download", s.authMiddleware(s.handleDownloadSnapshot))
 	s.mux.HandleFunc("DELETE /api/snapshots/{id}", s.authMiddleware(s.handleDeleteSnapshot))
 	s.mux.HandleFunc("POST /api/snapshots/upload-restore", s.authMiddleware(s.handleUploadRestoreSnapshot))
+
+	// Virtual Trash API
+	s.mux.HandleFunc("GET /api/trash", s.authMiddleware(s.handleListTrash))
+	s.mux.HandleFunc("POST /api/trash/folders/{id}/restore", s.authMiddleware(s.handleRestoreFolder))
+	s.mux.HandleFunc("POST /api/trash/files/{id}/restore", s.authMiddleware(s.handleRestoreFile))
+	s.mux.HandleFunc("DELETE /api/trash/folders/{id}", s.authMiddleware(s.handleHardDeleteFolder))
+	s.mux.HandleFunc("DELETE /api/trash/files/{id}", s.authMiddleware(s.handleHardDeleteFile))
+	s.mux.HandleFunc("DELETE /api/trash", s.authMiddleware(s.handleEmptyTrash))
+
+	// Root OPTIONS for Windows WebClient discovery
+	s.mux.HandleFunc("OPTIONS /{$}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("DAV", "1, 2")
+		w.Header().Set("MS-Author-Via", "DAV")
+		w.Header().Set("Allow", "OPTIONS, GET, HEAD, PROPFIND")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// WebDAV Gateway
+	wdHandler := &webdav.Handler{
+		Prefix:     "/webdav",
+		FileSystem: s.newWebDAVFS(),
+		LockSystem: webdav.NewMemLS(),
+	}
+	s.mux.HandleFunc("/webdav/", s.webdavAuthMiddleware(wdHandler.ServeHTTP))
+	s.mux.HandleFunc("/webdav", s.webdavAuthMiddleware(wdHandler.ServeHTTP))
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Support Windows WebClient DavWWWRoot syntax
+	if strings.HasPrefix(r.URL.Path, "/DavWWWRoot") {
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/DavWWWRoot")
+		if r.URL.Path == "" {
+			r.URL.Path = "/"
+		}
+	}
 	s.mux.ServeHTTP(w, r)
+}
+
+func (s *Server) webdavAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "OPTIONS" {
+			w.Header().Set("DAV", "1, 2")
+			w.Header().Set("MS-Author-Via", "DAV")
+			next(w, r)
+			return
+		}
+		_, password, ok := r.BasicAuth()
+		if !ok || password != s.cfg.AdminPassword {
+			w.Header().Set("WWW-Authenticate", `Basic realm="TeleDrive WebDAV"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
 }
 
 func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("teledrive_session")
-		if err != nil || cookie.Value != "authenticated" {
+		if err != nil || !crypto.ValidateSessionToken(cookie.Value, s.cfg.SecretKey) {
 			if r.Header.Get("X-Requested-With") == "XMLHttpRequest" || r.URL.Path != "/" {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
@@ -130,9 +183,10 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	pwd := r.FormValue("password")
 	if pwd == s.cfg.AdminPassword {
+		token := crypto.GenerateSessionToken(s.cfg.SecretKey, 30*24*time.Hour)
 		http.SetCookie(w, &http.Cookie{
 			Name:     "teledrive_session",
-			Value:    "authenticated",
+			Value:    token,
 			Path:     "/",
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,

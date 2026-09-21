@@ -10,10 +10,11 @@ This document defines the security architecture, threat model, cryptographic pra
 | :--- | :--- | :--- |
 | **MTProto Session (`auth_key`)** | Extraction from database leads to total Telegram account takeover. | Encrypted at rest via **AES-256-GCM**. Master key held in environment variable or restricted keyfile. |
 | **Telegram API Credentials** | Public exposure of `API_ID` and `API_HASH`. | Loaded via environment variables (`TELEDRIVE_TG_APP_ID`, `TELEDRIVE_TG_APP_HASH`). Excluded from repository. |
-| **Stored User Files** | Telegram inspects media or unauthorized parties view files. | Files stored in **Private Channels**; optional transparent **AES-256-GCM chunk encryption** before upload. |
-| **Admin Dashboard** | Unauthorized web access to drive and upload endpoints. | Bcrypt password hashing (`cost=12`), secure HTTP session cookies (`HttpOnly`, `SameSite=Lax`). |
+| **Stored User Files** | Telegram inspects media or unauthorized parties view cloud storage. | Files stored in private channels; transparent **AES-CTR seekable stream encryption** with zero-knowledge keys and 1-to-1 byte parity. |
+| **Admin Dashboard & WebDAV** | Unauthorized web or WebDAV access to virtual drive and upload endpoints. | Bcrypt password hashing (`cost=12`), tamper-proof **HMAC-SHA256 signed session tokens** (`HttpOnly`, `SameSite=Lax`), and WebDAV HTTP Basic Auth. |
 | **Public Share Links** | Brute-force scanning of share URLs or guessable passwords. | 128-bit high-entropy random tokens, bcrypt password hashing, IP-based rate limiting on unlock attempts. |
-| **Telegram Account Status** | Account ban or permanent freeze triggered by Telegram SpamBot. | Strict concurrency caps, dedicated secondary phone number, and automated `FLOOD_WAIT` backoff. |
+| **Telegram Account Status** | Account ban or permanent freeze triggered by Telegram SpamBot. | Strict concurrency caps (concurrency=1), pacing delays (30ms), and automated `FLOOD_WAIT` backoff. |
+| **Accidental Data Loss** | User or automated script accidentally deletes important files. | **Virtual Trash** soft-delete staging (`deleted_at`); files are recoverable until explicitly emptied or purged by 30-day worker. |
 
 ---
 
@@ -89,18 +90,40 @@ To ensure network traffic matches normal human desktop usage:
 
 ---
 
-## 4. End-to-End File Data Privacy (Optional Zero-Knowledge Mode)
+## 4. End-to-End File Data Privacy (Zero-Knowledge Seekable Stream Encryption)
 
-For users storing sensitive personal documents:
-* TeleDrive supports optional client/server-side payload encryption (`ENCRYPTION_MODE=aes256`).
-* When enabled, each 512 KB Part is encrypted using AES-256-GCM before transmission to MTProto.
-* Telegram servers store completely opaque pseudorandom binary blobs. Even if Telegram employees or third parties inspect the channel messages, files cannot be reconstructed without the local encryption key.
+To protect stored files against cloud provider inspection or unauthorized access, TeleDrive implements zero-knowledge payload encryption using **AES-CTR (Counter Mode)** stream cipher.
+
+### 4.1 Cryptographic Design & Guarantees
+
+1. **1-to-1 Byte Parity (Zero Size Expansion)**:
+   - Unlike block modes (CBC) or AEAD modes (GCM, ChaCha20-Poly1305) which append 16-byte authentication tags per chunk or require padding, AES-CTR produces ciphertext of the exact same length as plaintext (`len(ciphertext) == len(plaintext)`).
+   - This preserves Telegram's strict MTProto requirement: every part except the final part must be an exact multiple of 1 KB (typically 512 KB = 524,288 bytes). Any size overhead would misalign part boundaries.
+
+2. **$O(1)$ Instant Seekability for HTTP 206 Streaming**:
+   - CTR mode transforms AES into a synchronous stream cipher by encrypting a succession of counter blocks.
+   - For any byte offset $K$, the exact 128-bit counter state is calculated in $O(1)$ time:
+     $$\text{Block Index} = \lfloor K / 16 \rfloor$$
+     $$\text{Counter} = \text{Initial IV} + \text{Block Index}$$
+     $$\text{Keystream Skip} = K \pmod{16}$$
+   - This allows video and audio streaming with HTTP 206 Range requests to jump to any minute of a 4 GB video with zero CPU decryption latency and zero full-file pre-buffering.
+
+3. **Key & IV Derivation via HKDF-SHA256**:
+   - Master secret is loaded from `TELEDRIVE_SECRET_KEY`.
+   - Each file has a unique UUID `file_id`.
+   - Per-file 32-byte encryption key and 16-byte initial IV are derived via HMAC-based Key Derivation:
+     $$\text{Key} = \text{HMAC-SHA256}(\text{SecretKey}, \text{file\_id} \parallel \text{"key"})$$
+     $$\text{IV} = \text{HMAC-SHA256}(\text{SecretKey}, \text{file\_id} \parallel \text{"iv"})[0:16]$$
+   - Telegram servers only ever receive opaque pseudorandom binary blobs. Even with full access to channel messages, Telegram engineers or attackers cannot decrypt or identify file signatures without `TELEDRIVE_SECRET_KEY`.
 
 ---
 
 ## 5. Web Application Security Controls
 
-* **CSRF Protection**: State-changing endpoints (`POST`, `PUT`, `DELETE`) require custom headers or CSRF validation tokens.
-* **Range Request Boundary Validation**: Requests containing `Range: bytes=start-end` are strictly validated against total file size to prevent integer overflow and memory allocation attacks.
-* **Path Traversal Defense**: All virtual folder paths are resolved via UUID keys in SQLite, eliminating traditional filesystem directory traversal vulnerabilities (`../`).
+* **HMAC-SHA256 Signed Session Tokens**: Web authentication uses cryptographically signed session cookies (`teledrive_session`) containing `username`, `expiration_timestamp`, and an `HMAC-SHA256` signature. Tokens are verified using constant-time comparison (`crypto/subtle.ConstantTimeCompare`), preventing timing attacks and tampering.
+* **Cookie Flags**: All session cookies are flagged with `HttpOnly` (preventing XSS access) and `SameSite=Lax` (defending against cross-site request forgery).
+* **WebDAV HTTP Basic Authentication**: The embedded WebDAV gateway at `/webdav/` requires HTTP Basic Auth validated against the administrative credentials. Unauthorized requests immediately receive `401 Unauthorized` with `WWW-Authenticate: Basic realm="TeleDrive WebDAV"`.
+* **Path Traversal Defense**: All virtual folder and file paths are resolved through UUID keys in SQLite, eliminating directory traversal attacks (`../`). WebDAV paths are normalized with `path.Clean` before hierarchical resolution.
+* **Range Request Boundary Validation**: Requests containing `Range: bytes=start-end` are strictly validated against total file size to prevent integer overflow and memory exhaustion attacks.
 * **Share Link Rate Limiting**: The password unlock endpoint for protected share links limits attempts to 5 failures per minute per IP to prevent dictionary attacks.
+

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"teledrive/internal/crypto"
 	"teledrive/internal/telegram"
 )
 
@@ -167,13 +168,27 @@ func (s *Server) handleFileStream(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
 		w.WriteHeader(http.StatusPartialContent)
 
-		_ = s.tg.DownloadRange(r.Context(), docID, docHash, start, end, w, s.limiter)
+		if file.IsEncrypted == 1 {
+			key, iv := crypto.DeriveFileStreamKeyAndIV(s.cfg.SecretKey, file.ID)
+			_ = s.tg.DownloadRange(r.Context(), docID, docHash, start, end, w, s.limiter, func(data []byte, offset int64) ([]byte, error) {
+				return crypto.TransformBytes(data, key, iv, offset)
+			})
+		} else {
+			_ = s.tg.DownloadRange(r.Context(), docID, docHash, start, end, w, s.limiter)
+		}
 		return
 	}
 
 	w.Header().Set("Content-Length", strconv.FormatInt(file.Size, 10))
 	w.WriteHeader(http.StatusOK)
-	_ = s.tg.DownloadFull(r.Context(), docID, docHash, w)
+
+	if file.IsEncrypted == 1 {
+		key, iv := crypto.DeriveFileStreamKeyAndIV(s.cfg.SecretKey, file.ID)
+		dw, _ := crypto.DecryptStreamWriter(w, key, iv, 0)
+		_ = s.tg.DownloadFull(r.Context(), docID, docHash, dw)
+	} else {
+		_ = s.tg.DownloadFull(r.Context(), docID, docHash, w)
+	}
 }
 
 func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request) {
@@ -191,5 +206,11 @@ func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", file.Name))
 	w.Header().Set("Content-Length", strconv.FormatInt(file.Size, 10))
 
-	_ = s.tg.DownloadFull(r.Context(), docID, docHash, w)
+	if file.IsEncrypted == 1 {
+		key, iv := crypto.DeriveFileStreamKeyAndIV(s.cfg.SecretKey, file.ID)
+		dw, _ := crypto.DecryptStreamWriter(w, key, iv, 0)
+		_ = s.tg.DownloadFull(r.Context(), docID, docHash, dw)
+	} else {
+		_ = s.tg.DownloadFull(r.Context(), docID, docHash, w)
+	}
 }

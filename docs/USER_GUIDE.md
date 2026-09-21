@@ -118,6 +118,57 @@ All your folder structures and file references are stored in SQLite. TeleDrive p
 4. **Point-in-Time Restore**: Click **Restore** on any previous snapshot to safely hot-swap your database without restarting the server.
 5. **Offline Backups**: Download `.db.gz` directly to your local computer, or use **Upload & Restore** to recover from an external backup file.
 
+#### Step 7: Mount TeleDrive as a Local Network Drive (WebDAV)
+TeleDrive includes an embedded native WebDAV gateway. You can mount your virtual cloud drive directly in your operating system's native file explorer without installing third-party sync agents:
+
+- **WebDAV URL**: `http://localhost:8080/webdav`
+- **Username**: `admin`
+- **Password**: Your `TELEDRIVE_ADMIN_PASSWORD` (default: `admin123`)
+
+##### Windows 10/11 File Explorer & Command Prompt
+1. Open **File Explorer** and click **This PC**.
+2. Click **Computer** > **Map network drive** (or `...` > Map network drive).
+3. Choose a Drive Letter (e.g., `Z:`).
+4. In **Folder**, enter either the standard HTTP URL or Windows native UNC syntax:
+   - Standard URL: `http://localhost:8080/webdav` (or `http://192.168.x.x:8080/webdav`)
+   - Native UNC syntax (recommended for custom ports or network IPs): `\\192.168.x.x@8080\webdav`
+5. Check **Connect using different credentials** and click **Finish**.
+6. Enter `admin` and your password.
+
+*Or via Command Prompt / PowerShell:*
+```cmd
+net use Z: \\localhost@8080\webdav /user:admin admin123 /persistent:yes
+```
+
+> ⚠️ **Windows HTTP Troubleshooting ("A device attached to the system is not functioning" / Error 0x8007001F)**:
+> Windows WebClient blocks unencrypted HTTP Basic Auth by default. If Windows rejects the connection, open **PowerShell as Administrator** and run:
+> ```powershell
+> Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\WebClient\Parameters" -Name "BasicAuthLevel" -Value 2 -Type DWord
+> Restart-Service WebClient
+> ```
+
+##### macOS Finder
+1. In Finder, press `Cmd + K` (or select **Go** > **Connect to Server...**).
+2. Enter: `http://localhost:8080/webdav` and click **Connect**.
+3. Choose **Registered User**, enter `admin` and your password.
+
+##### Linux (davfs2 & rclone)
+```bash
+# Via davfs2:
+sudo mount -t davfs http://localhost:8080/webdav /mnt/teledrive -o username=admin
+
+# Via rclone:
+rclone config # select WebDAV, URL http://localhost:8080/webdav, vendor other
+rclone mount teledrive: /mnt/teledrive --vfs-cache-mode writes
+```
+
+#### Step 8: Virtual Trash & Accidental File Recovery
+TeleDrive implements safety-first staging for all file and folder deletions:
+1. **Soft-Delete**: Deleting a file or folder from the web dashboard or WebDAV does not delete data immediately; it assigns a `deleted_at` timestamp and moves the item to **Virtual Trash**.
+2. **Instant Restore**: In the dashboard, open **Trash** to restore any file or folder back to its original location with a single click.
+3. **Empty Trash**: Permanently purges all staged items and deletes the corresponding messages from your private Telegram storage channel.
+4. **Automated 30-Day Purge**: A background maintenance worker automatically purges trash items older than 30 days every 24 hours.
+
 ---
 
 ### 5. Security & Telegram Safe Mode
@@ -130,13 +181,21 @@ TeleDrive is engineered with strict safeguards to protect your primary Telegram 
 4. **Automated Flood Control**: If Telegram issues a `FLOOD_WAIT_X` response, TeleDrive gracefully pauses until the cooldown elapses without crashing or hammering the API.
 5. **Encrypted Session at Rest**: Your MTProto session authentication keys are encrypted in SQLite using **AES-256-GCM** derived from your secret key.
 6. **Isolated Private Vault**: All file transfers go into a private storage channel with 0 external members.
+7. **Zero-Knowledge Seekable Stream Encryption (AES-CTR)**: File parts are encrypted with AES-CTR stream cipher using per-file derived keys before dispatch to Telegram. Telegram servers only store opaque random bytes, while $O(1)$ video streaming seeking remains instantaneous.
+8. **HMAC-SHA256 Signed Session Tokens**: Web sessions use tamper-proof cryptographically signed cookies with 30-day validity, protected with `HttpOnly` and `SameSite=Lax`.
 
 ---
 
 ### 6. Troubleshooting & FAQ
 
 #### Q: Is my data private? Can other people see my files?
-No. All files are uploaded into your own private Telegram channel (`TeleDrive Vault`). Only the authenticated Telegram account has access to this channel. Share links are only accessible if you explicitly generate them.
+No. All files are uploaded into your own private Telegram channel (`TeleDrive Vault`). With Zero-Knowledge stream encryption active, Telegram servers only store encrypted ciphertext blobs.
+
+#### Q: Can I use WebDAV with media players or office software?
+Yes! Any application supporting WebDAV or mounted network paths (such as VLC player, Kodi, LibreOffice, or backup tools like restic/rclone) can read and write files directly through `http://localhost:8080/webdav`.
+
+#### Q: How does Virtual Trash affect Telegram channel storage?
+Soft-deleted files remain in Telegram until you click **Empty Trash** or the 30-day background purge worker runs. Once purged, TeleDrive issues `DeleteMessages` to delete the messages from Telegram.
 
 #### Q: What happens if my server crashes or I move to another PC/VPS?
 Because your SQLite metadata database is automatically snapshotted to your Telegram channel (`teledrive backup` or automated snapshots), moving to a new computer is seamless:
@@ -266,6 +325,57 @@ Seluruh hierarki folder dan penunjuk file tersimpan di database SQLite. TeleDriv
 4. **Point-in-Time Restore**: Klik tombol **Restore** pada snapshot tanggal tertentu untuk memulihkan seluruh struktur data secara instan tanpa perlu mematikan aplikasi.
 5. **Cadangan Offline**: Unduh langsung file `.db.gz` ke laptop/PC Anda, atau gunakan fitur **Upload & Restore** untuk memulihkan database dari file cadangan lokal saat berpindah komputer.
 
+#### Langkah 7: Pasang TeleDrive sebagai Network Drive Komputer (WebDAV)
+TeleDrive menyediakan gateway WebDAV terintegrasi. Anda dapat memasang (*mount*) cloud storage virtual Anda langsung sebagai drive lokal di File Explorer atau Finder tanpa perlu aplikasi sinkronisasi pihak ketiga:
+
+- **URL WebDAV**: `http://localhost:8080/webdav`
+- **Username**: `admin`
+- **Password**: Password admin Anda (`TELEDRIVE_ADMIN_PASSWORD`, default: `admin123`)
+
+##### Windows 10/11 File Explorer & Command Prompt
+1. Buka **File Explorer**, klik kanan pada **This PC** (atau klik menu `...`).
+2. Pilih **Map network drive...**.
+3. Pilih huruf Drive (misal `Z:`).
+4. Pada kolom **Folder**, masukkan salah satu format alamat berikut:
+   - Format URL standar: `http://localhost:8080/webdav` (atau `http://192.168.x.x:8080/webdav`)
+   - Format UNC resmi Windows (sangat disarankan untuk port atau IP non-standar): `\\192.168.x.x@8080\webdav`
+5. Centang **Connect using different credentials**, lalu klik **Finish**.
+6. Masukkan user `admin` dan password admin Anda.
+
+*Atau melalui Terminal (CMD / PowerShell):*
+```cmd
+net use Z: \\localhost@8080\webdav /user:admin admin123 /persistent:yes
+```
+
+> ⚠️ **Solusi Error Windows ("A device attached to the system is not functioning" / Error 0x8007001F)**:
+> Secara default, Windows WebClient memblokir autentikasi Basic Auth melalui HTTP biasa (non-SSL). Jika Windows menolak terhubung, buka **PowerShell sebagai Administrator** dan jalankan:
+> ```powershell
+> Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\WebClient\Parameters" -Name "BasicAuthLevel" -Value 2 -Type DWord
+> Restart-Service WebClient
+> ```
+
+##### macOS Finder
+1. Buka Finder, tekan `Cmd + K` (atau menu **Go** > **Connect to Server...**).
+2. Masukkan alamat: `http://localhost:8080/webdav`, klik **Connect**.
+3. Pilih **Registered User**, masukkan nama `admin` dan password Anda.
+
+##### Linux (davfs2 & rclone)
+```bash
+# Menggunakan davfs2:
+sudo mount -t davfs http://localhost:8080/webdav /mnt/teledrive -o username=admin
+
+# Menggunakan rclone:
+rclone config # pilih WebDAV, URL http://localhost:8080/webdav, vendor other
+rclone mount teledrive: /mnt/teledrive --vfs-cache-mode writes
+```
+
+#### Langkah 8: Virtual Trash & Pemulihan Berkas Terhapus
+TeleDrive mengedepankan keamanan data dengan sistem penampungan sementara (*soft-delete*):
+1. **Soft-Delete**: Saat Anda menghapus file atau folder dari web atau WebDAV, data tidak langsung dimusnahkan, melainkan diberi tanda `deleted_at` dan dipindahkan ke **Virtual Trash**.
+2. **Pemulihan Instan (Restore)**: Buka tab **Trash** di dashboard web untuk memulihkan berkas atau folder kembali ke lokasi asalnya hanya dengan satu klik.
+3. **Kosongkan Sampah (Empty Trash)**: Menghapus seluruh item di tempat sampah secara permanen sekaligus memicu perintah penghapusan pesan (*DeleteMessages*) di channel privat Telegram Anda.
+4. **Pembersihan Otomatis 30 Hari**: Worker latar belakang TeleDrive akan otomatis menghapus item tempat sampah yang usianya sudah melewati 30 hari secara berkala setiap 24 jam.
+
 ---
 
 ### 5. Keamanan & Kepatuhan Safe Mode
@@ -278,13 +388,21 @@ TeleDrive dirancang khusus dengan sistem pertahanan berlapis agar akun utama Tel
 4. **Penanganan Otomatis Flood Wait**: Jika Telegram mengirim sinyal `FLOOD_WAIT_X`, TeleDrive akan otomatis menunggu durasi jeda yang diminta tanpa melakukan serangan permintaan ulang (*hammering*).
 5. **Enkripsi Kunci Sesi (AES-256-GCM)**: Kunci otentikasi sesi Telegram MTProto dienkripsi menggunakan AES-256-GCM sebelum disimpan di database lokal.
 6. **Channel Pribadi Terisolasi**: File tersimpan di channel private dengan 0 anggota luar, sehingga file Anda tidak dapat diakses atau dicari oleh pengguna Telegram lain.
+7. **Enkripsi Stream Zero-Knowledge (AES-CTR)**: Setiap part file dienkripsi dengan stream cipher AES-CTR sebelum dikirim ke Telegram. Server Telegram hanya menyimpan data acak (ciphertext), sementara fitur pemutaran video Range Request $O(1)$ tetap instan.
+8. **Token Sesi Bertanda Tangan (HMAC-SHA256)**: Sesi web diamankan dengan cookie bertanda tangan kriptografis tahan manipulasi dengan masa kedaluwarsa 30 hari serta flag `HttpOnly` dan `SameSite=Lax`.
 
 ---
 
 ### 6. Tanya Jawab Umum (FAQ)
 
 #### T: Apakah file saya bisa dilihat orang lain di Telegram?
-Tidak. Semua file disimpan di channel pribadi milik Anda sendiri (`TeleDrive Vault`). Tidak ada orang lain yang memiliki akses ke channel tersebut kecuali Anda sendiri atau melalui tautan publik yang sengaja Anda buat.
+Tidak. Semua file disimpan di channel pribadi milik Anda sendiri (`TeleDrive Vault`). Ditambah lagi dengan enkripsi stream Zero-Knowledge, pihak Telegram maupun siapa pun tidak dapat melihat isi file Anda.
+
+#### T: Apakah saya bisa memutar video atau membuka dokumen langsung dari drive WebDAV?
+Bisa! Semua aplikasi yang mendukung WebDAV atau drive lokal (seperti VLC Player, pemutar musik, LibreOffice, atau script backup) dapat langsung membaca dan menulis file tanpa kendala.
+
+#### T: Bagaimana pengaruh Virtual Trash terhadap kuota atau penyimpanan di Telegram?
+File yang ada di Virtual Trash masih tersimpan di Telegram sampai Anda mengklik **Empty Trash** atau dibersihkan otomatis oleh worker setelah 30 hari. Ketika dibersihkan, TeleDrive akan memanggil API Telegram untuk menghapus pesan terkait secara permanen.
 
 #### T: Bagaimana jika komputer/VPS saya rusak atau saya ingin pindah ke PC baru?
 Sangat mudah dan otomatis! Karena database metadata SQLite Anda dicadangkan ke channel Telegram:

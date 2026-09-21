@@ -86,3 +86,18 @@ This roadmap outlines the implementation phases for TeleDrive. In accordance wit
 * **Runnable Verification**:
   - Full automated integration suite passing (`go test ./...`), including authenticated API operations, share link listing and revocation, and successful compilation into a standalone static binary (`go build ./cmd/teledrive`).
 
+---
+
+## Milestone 7: Zero-Knowledge Encryption, Virtual Trash, Signed Sessions & WebDAV Gateway (Completed)
+
+**Goal**: Elevate TeleDrive into an end-to-end private personal cloud with OS-level disk mounting capabilities, robust data safety, and zero-trust storage.
+
+* **Key Deliverables**:
+  - **Fase 1: Signed Session Token**: Replace static session cookie with HMAC-SHA256 signed tokens tied to `TELEDRIVE_SECRET_KEY` with expiration and HTTP-only protections.
+  - **Fase 2: Virtual Trash**: Add `deleted_at` soft-delete staging to `folders` and `files`, web UI Trash tab, restore/empty actions, and 30-day background auto-purge scheduler.
+  - **Fase 3: Zero-Knowledge Part Encryption**: Implement AES-CTR seekable stream cipher in `internal/crypto`, schema migration for `is_encrypted`, and seamless O(1) range-seek decryption in downloader and pass-through streamer.
+  - **Fase 4: WebDAV Gateway**: Embed RFC 4918 WebDAV handler on `/webdav` using `golang.org/x/net/webdav` with HTTP Basic Auth, enabling direct drive mounting on Windows, macOS, Linux, and rclone.
+* **Runnable Verification**:
+  - Self-check suite verifying: (1) token forgery rejection, (2) soft-delete and restore cycle without Storage Channel message loss, (3) byte-for-byte encrypted round-trip upload and HTTP 206 range-seeking, and (4) WebDAV PROPFIND/GET/PUT integration.
+
+

@@ -53,6 +53,10 @@
   - Adaptive 30ms pacing delay between 512 KB parts.
   - Automated defensive `FLOOD_WAIT_X` backoff without crashing or retrying aggressively.
   - Strictly private Storage Channel (`TeleDrive Vault`) with zero external members.
+- **🔒 Zero-Knowledge Part Encryption**: File parts are encrypted with **AES-CTR** seekable stream cipher before dispatch to Telegram, ensuring zero-trust storage with instantaneous $O(1)$ video seeking and zero size expansion.
+- **🗄️ Native WebDAV Gateway (`/webdav`)**: Mount TeleDrive directly as an operating system drive in Windows Explorer, macOS Finder, Linux (`davfs2`), or `rclone` with standard HTTP Basic Auth.
+- **🗑️ Virtual Trash (Soft-Delete & Auto-Purge)**: Accidental file and folder deletions are safely staged in Virtual Trash with instant restore, empty trash, and an automated 30-day background purge worker.
+- **🔑 Signed Session Tokens**: Tamper-proof **HMAC-SHA256** signed session cookies with 30-day validity, constant-time comparison, and HTTP-only protections.
 - **🔐 Military-Grade Security at Rest**: Telegram MTProto session strings (`auth_key`) are encrypted at rest in SQLite using **AES-256-GCM** with SHA-256 key derivation.
 - **💾 Automated Snapshots & Point-in-Time Restore**: Online SQLite snapshots stored directly in your private Telegram Storage Channel with 5-snapshot rolling retention, 24-hour background scheduler, automated snapshot on graceful shutdown, web-based point-in-time restore, direct `.db.gz` offsite downloads, and local upload-and-restore.
 
@@ -126,6 +130,7 @@ Open your browser and navigate to:
 👉 **`http://localhost:8080`**
 
 - **Default Admin Password**: `admin123` (Change via `TELEDRIVE_ADMIN_PASSWORD`).
+- **WebDAV Gateway**: Mount in Windows/macOS/Linux at `http://localhost:8080/webdav` (User: `admin`). See [docs/USER_GUIDE.md](docs/USER_GUIDE.md#step-7-mount-teledrive-as-a-local-network-drive-webdav) for mounting instructions.
 
 ---
 
@@ -209,7 +214,11 @@ Developed and maintained by **Herliansyah**:
   - Jeda adaptif 30ms antar-part untuk menjaga koneksi tetap dingin.
   - Penanganan jeda otomatis `FLOOD_WAIT` dari server Telegram.
   - Channel storage berstatus **Private** dan terisolasi (0 anggota luar).
-- **Keamanan Data**: Kunci session string MTProto dienkripsi menggunakan algoritma **AES-256-GCM** sebelum disimpan di database.
+- **Enkripsi File Zero-Knowledge**: Part data file dienkripsi dengan stream cipher **AES-CTR** yang dapat di-seek sebelum diunggah ke Telegram. Mendukung streaming video Range Request $O(1)$ tanpa penambahan ukuran file.
+- **WebDAV Gateway Bawaan (`/webdav`)**: Pasang TeleDrive langsung sebagai Network Drive di Windows Explorer, macOS Finder, Linux (`davfs2`), atau `rclone` menggunakan HTTP Basic Auth bawaan.
+- **Virtual Trash (Soft-Delete & Auto-Purge)**: Penghapusan file dan folder tidak langsung menghapus data fisik; item tersimpan aman di Virtual Trash dengan opsi pulihkan (*restore*), kosongkan (*empty trash*), dan pembersihan otomatis setelah 30 hari.
+- **Signed Session Token**: Cookie sesi berbasis tanda tangan kriptografis **HMAC-SHA256** tahan manipulasi, masa berlaku 30 hari, dan terproteksi `HttpOnly`.
+- **Keamanan Data at Rest**: Kunci session string MTProto dienkripsi menggunakan algoritma **AES-256-GCM** sebelum disimpan di database.
 - **Disaster Recovery & Snapshots**: Snapshot online SQLite otomatis (setiap 24 jam dan saat shutdown) tersimpan di Telegram Storage Channel dengan retensi bergulir 5 snapshot, riwayat snapshot di dashboard web, pemulihan point-in-time, serta unduh dan unggah backup database lokal (`teledrive backup` & `teledrive restore`).
 
 ---
@@ -254,6 +263,7 @@ Ikuti petunjuk di layar untuk memasukkan nomor telepon, kode OTP dari Telegram, 
 ./teledrive server
 ```
 Buka browser di **`http://localhost:8080`** (Password admin: `admin123`).
+- **WebDAV Gateway**: Pasang sebagai drive lokal di Windows/macOS/Linux di `http://localhost:8080/webdav` (User: `admin`). Lihat [docs/USER_GUIDE.md](docs/USER_GUIDE.md#langkah-7-pasang-teledrive-sebagai-network-drive-komputer-webdav) untuk panduan pemasangan.
 
 #### 3. Perintah Terminal (CLI)
 ```bash

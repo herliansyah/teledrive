@@ -80,8 +80,11 @@ func (m *ClientManager) DownloadFull(ctx context.Context, docID, accessHash int6
 	return err
 }
 
+// DecryptorFunc defines a transformer that decrypts a chunk of bytes fetched at a specific offset.
+type DecryptorFunc func(data []byte, offset int64) ([]byte, error)
+
 // DownloadRange streams a specific byte range [start, end] from Telegram using aligned chunks.
-func (m *ClientManager) DownloadRange(ctx context.Context, docID, accessHash int64, start, end int64, w io.Writer, limiter *SafeLimiter) error {
+func (m *ClientManager) DownloadRange(ctx context.Context, docID, accessHash int64, start, end int64, w io.Writer, limiter *SafeLimiter, decryptors ...DecryptorFunc) error {
 	location := &tg.InputDocumentFileLocation{
 		ID:         docID,
 		AccessHash: accessHash,
@@ -120,6 +123,14 @@ func (m *ClientManager) DownloadRange(ctx context.Context, docID, accessHash int
 
 		if len(bytesData) == 0 {
 			break
+		}
+
+		if len(decryptors) > 0 && decryptors[0] != nil {
+			decrypted, dErr := decryptors[0](bytesData, currOffset)
+			if dErr != nil {
+				return fmt.Errorf("decrypt range chunk offset %d: %w", currOffset, dErr)
+			}
+			bytesData = decrypted
 		}
 
 		// Calculate overlap with requested [start, end]

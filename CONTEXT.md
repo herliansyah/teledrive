@@ -75,3 +75,20 @@ _Avoid_: Node SDK, JS rewrite, npm port
 **Binary Cache**:
 The local filesystem location where pre-compiled native TeleDrive executables are stored across runner executions.
 _Avoid_: Temp folder, binary download directory
+
+**WebDAV Gateway**:
+An embedded HTTP handler implementing the WebDAV protocol (RFC 4918) allowing the Virtual File System to be mounted directly as an operating system network drive.
+_Avoid_: WebDAV server, network share, drive mapper
+
+**Zero-Knowledge Part Encryption**:
+Cryptographic transformation applied to file data parts before dispatch to Telegram MTProto servers, ensuring stored byte segments in the Storage Channel cannot be decrypted or inspected by Telegram.
+_Avoid_: Client encryption, vault cipher, channel encryption
+
+**Virtual Trash**:
+A logical staging state for deleted Virtual Folders and files where metadata is flagged with a deletion timestamp and hidden from the active explorer without immediately purging the underlying document messages from the Storage Channel.
+_Avoid_: Recycle bin, soft delete, garbage collector
+
+**Signed Session Token**:
+An HMAC-SHA256 authenticated and time-bounded HTTP cookie value replacing static authentication state.
+_Avoid_: Auth cookie, login token, JWT
+

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"teledrive/internal/app"
+	"teledrive/internal/crypto"
+	"teledrive/internal/db"
 	"teledrive/internal/telegram"
 	"teledrive/internal/web"
 )
@@ -153,8 +156,9 @@ func runServer(cfg *app.Config) {
 		return
 	}
 
-	// Start background periodic snapshot scheduler
+	// Start background periodic snapshot and trash purge schedulers
 	srv.StartPeriodicBackup(ctx)
+	srv.StartPeriodicTrashPurge(ctx)
 
 	httpServer := &http.Server{
 		Handler: srv,
@@ -246,7 +250,15 @@ func runUpload(cfg *app.Config, args []string) {
 	mimeType := detectMimeType(fileName)
 	size := fileInfo.Size()
 
-	fmt.Printf("Uploading %s (%.2f MB)...\n", fileName, float64(size)/(1024*1024))
+	fileUID := db.GenerateID()
+	encKey, encIV := crypto.DeriveFileStreamKeyAndIV(cfg.SecretKey, fileUID)
+	encReader, encErr := crypto.EncryptStream(f, encKey, encIV, 0)
+	if encErr != nil {
+		fmt.Fprintf(os.Stderr, "Encryption initialization failed: %v\n", encErr)
+		return
+	}
+
+	fmt.Printf("Uploading %s (%.2f MB) [Zero-Knowledge Encrypted]...\n", fileName, float64(size)/(1024*1024))
 
 	ctx := context.Background()
 	err = mgr.Run(ctx, func(runCtx context.Context) error {
@@ -254,7 +266,7 @@ func runUpload(cfg *app.Config, args []string) {
 			return err
 		}
 
-		msgID, docID, accessHash, shaHex, err := mgr.UploadFromReader(runCtx, f, size, fileName, mimeType, limiter, func(uploaded, total int64) {
+		msgID, docID, accessHash, shaHex, err := mgr.UploadFromReader(runCtx, encReader, size, fileName, mimeType, limiter, func(uploaded, total int64) {
 			pct := float64(uploaded) / float64(total) * 100
 			fmt.Printf("\rProgress: %.1f%% (%d / %d bytes)", pct, uploaded, total)
 		})
@@ -263,7 +275,7 @@ func runUpload(cfg *app.Config, args []string) {
 		}
 
 		fmt.Println("\nFinalizing database record...")
-		_, err = database.CreateFile(folderID, fileName, size, mimeType, msgID, strconv.FormatInt(docID, 10), strconv.FormatInt(accessHash, 10), shaHex)
+		_, err = database.CreateFileWithID(fileUID, folderID, fileName, size, mimeType, msgID, strconv.FormatInt(docID, 10), strconv.FormatInt(accessHash, 10), shaHex, 1)
 		return err
 	})
 
@@ -367,9 +379,20 @@ func runDownload(cfg *app.Config, args []string) {
 
 	fmt.Printf("Downloading %s (%.2f MB) to %s...\n", fileRecord.Name, float64(fileRecord.Size)/(1024*1024), outputPath)
 
+	var destWriter io.Writer = out
+	if fileRecord.IsEncrypted == 1 {
+		encKey, encIV := crypto.DeriveFileStreamKeyAndIV(cfg.SecretKey, fileRecord.ID)
+		dw, dwErr := crypto.DecryptStreamWriter(out, encKey, encIV, 0)
+		if dwErr != nil {
+			fmt.Printf("Error initializing decryption: %v\n", dwErr)
+			return
+		}
+		destWriter = dw
+	}
+
 	ctx := context.Background()
 	err = mgr.Run(ctx, func(runCtx context.Context) error {
-		return mgr.DownloadFull(runCtx, docID, docHash, out)
+		return mgr.DownloadFull(runCtx, docID, docHash, destWriter)
 	})
 
 	if err != nil {
