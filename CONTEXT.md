@@ -92,3 +92,11 @@ _Avoid_: Recycle bin, soft delete, garbage collector
 An HMAC-SHA256 authenticated and time-bounded HTTP cookie value replacing static authentication state.
 _Avoid_: Auth cookie, login token, JWT
 
+**Jailed Guest Traversal**:
+The boundary-enforced navigation within a shared Virtual Folder subtree preventing guest users from traversing or accessing parent or unrelated Virtual Folders.
+_Avoid_: Chroot, sandbox mode, restricted browsing
+
+**Bulk Operation**:
+A single batched API request performing state transitions (such as moving to a target folder or staging in Virtual Trash) across multiple virtual files and Virtual Folders simultaneously.
+_Avoid_: Batch job, multi-action, mass edit
+

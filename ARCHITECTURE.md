@@ -110,16 +110,16 @@ sequenceDiagram
 
 ---
 
-### 2.3 Share Link Flow
+### 2.3 Share Link Flow & Virtual Folder Jailing
 
-Public visitors access files via cryptographic tokens. Passwords and expiry are validated at the edge before streaming bytes.
+Public visitors access files or folders via cryptographic tokens. Passwords and expiry are validated at the edge before rendering content or streaming bytes. For shared folders, recursive CTE boundary checks prevent guest escape from the shared subtree.
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Guest as Guest User
     participant Web as TeleDrive (/s/{token})
-    participant DB as SQLite
+    participant DB as SQLite (Recursive CTE)
     participant TG as Telegram MTProto
 
     Guest->>Web: GET /s/{token}
@@ -129,13 +129,32 @@ sequenceDiagram
         Guest->>Web: POST /s/{token}/unlock (password)
         Web->>DB: Verify bcrypt password hash
     end
-    Web-->>Guest: Render Landing Page (metadata + stream preview + download button)
-    
-    opt Direct Download or Stream
-        Guest->>Web: GET /s/{token}/download
-        Web->>DB: Increment download_count
-        Web->>TG: Stream file parts
-        TG-->>Guest: Pass-through file bytes
+    alt Shared File
+        Web-->>Guest: Render File Landing Page (metadata + stream preview + download button)
+        opt Direct Download or Stream
+            Guest->>Web: GET /s/{token}/download
+            Web->>DB: Increment download_count
+            Web->>TG: Stream file parts
+            TG-->>Guest: Pass-through file bytes
+        end
+    else Shared Virtual Folder
+        Web->>DB: List files & folders at root of share
+        Web-->>Guest: Render Folder Explorer (share.html)
+        opt Guest Subfolder Navigation
+            Guest->>Web: GET /s/{token}?folder_id={sub_id}
+            Web->>DB: IsFolderInFolderHierarchy(sub_id, shared_root_id)
+            alt In Jail Subtree
+                Web-->>Guest: Render Subfolder & Breadcrumb Path
+            else Outside Jail
+                Web-->>Guest: 404 Not Found (Access Denied)
+            end
+        end
+        opt Download File inside Shared Folder
+            Guest->>Web: GET /s/{token}/files/{file_id}/download
+            Web->>DB: IsFileInFolderHierarchy(file_id, shared_root_id)
+            Web->>TG: Stream file parts
+            TG-->>Guest: Pass-through file bytes
+        end
     end
 ```
 
@@ -281,6 +300,38 @@ sequenceDiagram
 
 ---
 
+### 2.9 Bulk Operations & Drag-and-Drop Organization Flow
+
+TeleDrive provides high-throughput batch operations for desktop-style file organization via drag-and-drop or multi-selection.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User / Browser
+    participant API as TeleDrive HTTP
+    participant DB as SQLite (Transaction)
+
+    alt Bulk Move / Drag-and-Drop
+        User->>API: POST /api/batch/move {file_ids: [...], folder_ids: [...], target_folder_id: "..."}
+        API->>DB: BatchMove(fileIDs, folderIDs, targetFolderID)
+        loop Each File & Folder
+            DB->>DB: Check cycle prevention & update folder_id
+        end
+        DB-->>API: Success
+        API-->>User: 200 OK {success: true}
+    else Bulk Trash
+        User->>API: POST /api/batch/trash {file_ids: [...], folder_ids: [...]}
+        API->>DB: BatchTrash(fileIDs, folderIDs)
+        loop Each File & Folder
+            DB->>DB: Set deleted_at = CURRENT_TIMESTAMP
+        end
+        DB-->>API: Success
+        API-->>User: 200 OK {success: true}
+    end
+```
+
+---
+
 ## 3. Database Schema (SQLite)
 
 ```sql
@@ -329,11 +380,12 @@ CREATE TABLE upload_sessions (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Public share links
+-- Public share links (files or folders)
 CREATE TABLE share_links (
     id TEXT PRIMARY KEY,
     token TEXT UNIQUE NOT NULL,
-    file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    file_id TEXT NULL REFERENCES files(id) ON DELETE CASCADE,
+    folder_id TEXT NULL REFERENCES folders(id) ON DELETE CASCADE,
     password_hash TEXT NULL,
     expires_at DATETIME NULL,
     download_count INTEGER DEFAULT 0,

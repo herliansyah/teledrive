@@ -100,15 +100,31 @@ By default, TeleDrive scans for an available port starting at `8080` and display
 
 #### Step 4: Virtual Folder & File Management
 - Click **New Folder** to create hierarchical directories.
-- Move files across folders seamlessly (with cycle-prevention logic preventing folders from being moved into themselves).
-- Rename or permanently delete files at any time. Deleting a virtual file removes its pointer in SQLite.
+- **Drag-and-Drop Organization**: Drag files or folders directly into folder cards/rows or onto the breadcrumb trail to move them instantly.
+- **Move to Dialog**: Select **Move** from the item context menu (`⋮`) to pick any destination folder interactively.
+- **Multi-Select & Bulk Operations**: Check items individually or use the select-all checkbox to activate the floating bulk action bar:
+  - **Batch Move**: Move multiple files and folders to a target folder in one operation.
+  - **Batch Trash**: Move multiple selected files and folders to Virtual Trash simultaneously.
+- **Keyboard Shortcuts**:
+  - `F2`: Quickly rename the currently selected file or folder.
+  - `Delete` / `Backspace`: Move selected items directly to Virtual Trash.
+- Move files across folders seamlessly (with cycle-prevention logic preventing folders from being moved into themselves or their subfolders).
+- Rename or delete files at any time. Deleted files are safely sent to **Virtual Trash**.
 
-#### Step 5: Public Share Links & QR Code Generator
-Need to share a file with someone who doesn't have an account on your server?
-1. Open the file context menu (`⋮`) and select **Create Public Share Link**.
-2. Optionally set a **password** (hashed with bcrypt) or an **expiration timer** (1 hour, 1 day, 7 days).
-3. Copy the public link (`/s/:token`) or click the **QR Code** button to allow mobile users to scan and download immediately.
-4. Audit or revoke active share links anytime under the **Shared Links** tab in the sidebar.
+#### Step 5: Public Share Links & Virtual Folder Sharing
+Need to share files or an entire folder with guests without giving them server account credentials?
+1. Open the file or folder context menu (`⋮`) and select **Create Public Share Link**.
+2. **Extended Link Expiry**:
+   - Default: **Never expires**.
+   - Quick presets: **1 hour**, **1 day**, **7 days**, **90 days**, **1 year**.
+   - Custom: Choose an exact expiry date and time via the built-in calendar picker.
+3. Optionally set a **password** (hashed with bcrypt) for protected access.
+4. **Virtual Folder Sharing (Jailed Guest Traversal)**:
+   - When sharing a folder, guests receive a clean browsing interface restricted exclusively to that folder and its descendants.
+   - Guests can navigate nested subfolders via breadcrumbs and download or stream individual files within the shared tree.
+   - Guest requests are strictly jailed: visitors cannot traverse above the shared root folder.
+5. Copy the public link (`/s/:token`) or click the **QR Code** button for mobile scan-and-go access.
+6. Audit, monitor download counts, or revoke active share links anytime under the **Shared Links** tab in the sidebar.
 
 #### Step 6: Database Snapshots & Point-in-Time Restore
 All your folder structures and file references are stored in SQLite. TeleDrive provides built-in online disaster recovery:
@@ -307,15 +323,31 @@ Secara otomatis, TeleDrive akan mencari port yang tersedia mulai dari `8080` dan
 
 #### Langkah 4: Manajemen Folder & Berkas Virtual
 - Klik tombol **New Folder** untuk membuat subfolder baru.
-- Pindahkan file antar folder dengan mudah (dilengkapi proteksi anti siklus agar folder tidak dapat dipindahkan ke dalam dirinya sendiri).
-- Ganti nama (*rename*) atau hapus file yang sudah tidak diperlukan.
+- **Drag-and-Drop Organisasi Berkas**: Tarik dan lepas (*drag & drop*) file atau folder langsung ke kartu/baris folder atau ke navigasi remah roti (*breadcrumb trail*) untuk memindahkannya secara instan.
+- **Dialog "Move to..."**: Pilih opsi **Move** pada menu aksi (`⋮`) untuk memilih folder tujuan secara interaktif.
+- **Multi-Pilih & Operasi Massal (Bulk Operations)**: Centang beberapa file/folder atau gunakan kotak centang pilih-semua untuk membuka bilah aksi melayang (*floating bulk action bar*):
+  - **Pindah Massal (Batch Move)**: Memindahkan banyak berkas dan folder ke folder tujuan dalam satu klik.
+  - **Hapus Massal (Batch Trash)**: Memindahkan seluruh item terpilih ke Virtual Trash secara bersamaan.
+- **Pintasan Keyboard (Shortcuts)**:
+  - `F2`: Mengubah nama (*rename*) item yang sedang dipilih dengan cepat.
+  - `Delete` / `Backspace`: Membuang item terpilih langsung ke Virtual Trash.
+- Pindahkan file antar folder dengan mudah (dilengkapi proteksi anti-siklus agar folder tidak dapat dipindahkan ke dalam dirinya sendiri atau subfoldernya).
+- Ganti nama (*rename*) atau hapus file yang sudah tidak diperlukan; berkas yang dihapus masuk ke **Virtual Trash**.
 
-#### Langkah 5: Berbagi Link Publik & Fitur QR Code
-Ingin membagikan file kepada teman tanpa memberi akses akun admin?
-1. Buka menu aksi berkas (`⋮`) dan pilih **Create Public Share Link**.
-2. Anda dapat menambahkan **password** (diamankan dengan hashing bcrypt) atau mengatur **batas waktu kedaluwarsa** (1 jam, 1 hari, 7 hari, atau selamanya).
-3. Salin URL publik (`/s/:token`) atau klik tombol **QR Code** agar teman Anda bisa langsung memindai tautan melalui kamera ponsel.
-4. Anda dapat memantau jumlah unduhan atau mencabut (*revoke*) link berbagi kapan saja melalui tab **Shared Links**.
+#### Langkah 5: Berbagi Link Publik & Berbagi Folder Virtual
+Ingin membagikan file atau satu folder penuh kepada orang lain tanpa memberi akun admin?
+1. Buka menu aksi berkas atau folder (`⋮`) dan pilih **Create Public Share Link**.
+2. **Opsi Batas Waktu Kedaluwarsa yang Luas**:
+   - Default: **Selamanya / Never expires**.
+   - Pilihan cepat: **1 jam**, **1 hari**, **7 hari**, **90 hari**, **1 tahun**.
+   - Kustom: Tentukan tanggal dan jam kedaluwarsa secara spesifik melalui pemilih tanggal (*date picker*).
+3. Anda dapat menambahkan **password** (diamankan dengan hashing bcrypt) untuk akses terproteksi.
+4. **Berbagi Folder Virtual (Jailed Guest Traversal)**:
+   - Saat membagikan folder, pengunjung umum mendapatkan tampilan penjelajah berkas yang terisolasi (*jailed*) hanya pada folder tersebut dan subfolder di dalamnya.
+   - Pengunjung dapat menelusuri subfolder melalui breadcrumb, serta mengunduh atau memutar (*streaming*) berkas di dalam folder berbagi.
+   - Pengunjung dijamin secara aman tidak dapat keluar atau mengakses hierarki folder di luar folder yang dibagikan.
+5. Salin URL publik (`/s/:token`) atau klik tombol **QR Code** agar rekan Anda bisa langsung memindai tautan melalui kamera ponsel.
+6. Anda dapat memantau jumlah unduhan atau mencabut (*revoke*) link berbagi kapan saja melalui tab **Shared Links**.
 
 #### Langkah 6: Snapshot Database & Pemulihan Point-in-Time
 Seluruh hierarki folder dan penunjuk file tersimpan di database SQLite. TeleDrive menyediakan sistem pencadangan terintegrasi:
