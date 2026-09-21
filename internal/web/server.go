@@ -97,6 +97,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /s/{token}/unlock", s.handleShareUnlock)
 	s.mux.HandleFunc("GET /s/{token}/stream", s.handleShareStream)
 	s.mux.HandleFunc("GET /s/{token}/download", s.handleShareDownload)
+	s.mux.HandleFunc("GET /s/{token}/contents", s.handleShareFolderContents)
+	s.mux.HandleFunc("GET /s/{token}/files/{id}/stream", s.handleShareFolderFileStream)
+	s.mux.HandleFunc("GET /s/{token}/files/{id}/download", s.handleShareFolderFileDownload)
+
+	// Batch Operations
+	s.mux.HandleFunc("POST /api/batch/trash", s.authMiddleware(s.handleBatchTrash))
+	s.mux.HandleFunc("POST /api/batch/move", s.authMiddleware(s.handleBatchMove))
 
 	// Database Snapshots & Point-in-Time Recovery
 	s.mux.HandleFunc("GET /api/snapshots", s.authMiddleware(s.handleListSnapshots))

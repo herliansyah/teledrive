@@ -448,6 +448,143 @@ func TestWebServer_WebDAVGateway(t *testing.T) {
 	}
 }
 
+func TestWebServer_FolderShareAndBatchOperations(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open db failed: %v", err)
+	}
+	defer database.Close()
+
+	cfg := &app.Config{
+		Port:          "8080",
+		DBPath:        dbPath,
+		SecretKey:     "test-secret-key-32b",
+		AdminPassword: "supersecretpassword",
+	}
+
+	server, err := NewServer(cfg, database, nil)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+
+	authCookie := &http.Cookie{
+		Name:  "teledrive_session",
+		Value: crypto.GenerateSessionToken(cfg.SecretKey, 24*time.Hour),
+	}
+
+	// 1. Create a folder hierarchy with files
+	parentFolder, err := database.CreateFolder("SharedFolder", nil)
+	if err != nil {
+		t.Fatalf("CreateFolder failed: %v", err)
+	}
+	subFolder, err := database.CreateFolder("SubDir", &parentFolder.ID)
+	if err != nil {
+		t.Fatalf("CreateFolder sub failed: %v", err)
+	}
+	f1, err := database.CreateFile(&parentFolder.ID, "file1.txt", 100, "text/plain", 1, "tg1", "th1", "s1")
+	if err != nil {
+		t.Fatalf("CreateFile failed: %v", err)
+	}
+	f2, err := database.CreateFile(&subFolder.ID, "file2.txt", 200, "text/plain", 2, "tg2", "th2", "s2")
+	if err != nil {
+		t.Fatalf("CreateFile 2 failed: %v", err)
+	}
+
+	// 2. Test Folder Share Link Creation (with 90 days expiry)
+	shareDays := 90
+	sharePayload, _ := json.Marshal(map[string]any{
+		"folder_id":   parentFolder.ID,
+		"expiry_days": shareDays,
+	})
+	req := httptest.NewRequest("POST", "/api/share", bytes.NewReader(sharePayload))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(authCookie)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("Expected 201 Created for folder share, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var shareResp struct {
+		Token string `json:"token"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &shareResp)
+	if shareResp.Token == "" {
+		t.Fatalf("Expected non-empty share token")
+	}
+
+	// 3. Test Landing on Shared Folder (/s/{token})
+	req = httptest.NewRequest("GET", "/s/"+shareResp.Token, nil)
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for folder share landing, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "SharedFolder") {
+		t.Fatalf("Expected landing HTML to contain 'SharedFolder'")
+	}
+
+	// 4. Test GET /s/{token}/contents
+	req = httptest.NewRequest("GET", "/s/"+shareResp.Token+"/contents", nil)
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for /contents, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var contents struct {
+		Folders []db.Folder `json:"folders"`
+		Files   []db.File   `json:"files"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &contents)
+	if len(contents.Folders) != 1 || contents.Folders[0].Name != "SubDir" {
+		t.Fatalf("Expected 1 subfolder 'SubDir', got %v", contents.Folders)
+	}
+	if len(contents.Files) != 1 || contents.Files[0].Name != "file1.txt" {
+		t.Fatalf("Expected 1 file 'file1.txt', got %v", contents.Files)
+	}
+
+	// 5. Test Batch Move
+	targetFolder, _ := database.CreateFolder("TargetDir", nil)
+	batchMovePayload, _ := json.Marshal(map[string]any{
+		"file_ids":         []string{f1.ID},
+		"folder_ids":       []string{subFolder.ID},
+		"target_folder_id": targetFolder.ID,
+	})
+	req = httptest.NewRequest("POST", "/api/batch/move", bytes.NewReader(batchMovePayload))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(authCookie)
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for /api/batch/move, got %d: %s", rec.Code, rec.Body.String())
+	}
+	movedFile, _ := database.GetFile(f1.ID)
+	if movedFile.FolderID == nil || *movedFile.FolderID != targetFolder.ID {
+		t.Fatalf("Expected f1 to be moved to targetFolder")
+	}
+
+	// 6. Test Batch Trash
+	batchTrashPayload, _ := json.Marshal(map[string]any{
+		"file_ids":   []string{f2.ID},
+		"folder_ids": []string{targetFolder.ID},
+	})
+	req = httptest.NewRequest("POST", "/api/batch/trash", bytes.NewReader(batchTrashPayload))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(authCookie)
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for /api/batch/trash, got %d: %s", rec.Code, rec.Body.String())
+	}
+	trashedFile2, _ := database.GetFile(f2.ID)
+	if trashedFile2.DeletedAt == nil {
+		t.Fatalf("Expected f2 to be in Virtual Trash")
+	}
+}
+
+
 
 
 

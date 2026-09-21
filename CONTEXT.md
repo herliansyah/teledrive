@@ -65,7 +65,7 @@ An HTTP 206 request translated on-the-fly into specific MTProto Part offsets to 
 _Avoid_: Partial download, slice streaming
 
 **Share Link**:
-A time-bounded, optionally password-protected public URL granting guest access to stream or download a specific virtual file.
+A time-bounded, optionally password-protected public URL granting guest access to stream, download, or browse a specific virtual file or Virtual Folder.
 _Avoid_: Public link, invite link
 
 **npm Distribution Wrapper**:

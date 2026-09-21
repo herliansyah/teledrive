@@ -51,7 +51,8 @@ type UploadSession struct {
 type ShareLink struct {
 	ID            string     `json:"id"`
 	Token         string     `json:"token"`
-	FileID        string     `json:"file_id"`
+	FileID        *string    `json:"file_id,omitempty"`
+	FolderID      *string    `json:"folder_id,omitempty"`
 	PasswordHash  *string    `json:"password_hash"`
 	ExpiresAt     *time.Time `json:"expires_at"`
 	DownloadCount int        `json:"download_count"`
@@ -552,14 +553,17 @@ func (d *DB) DeleteUploadSession(id string) error {
 	return err
 }
 
-// CreateShareLink generates a public token for a file.
-func (d *DB) CreateShareLink(fileID string, passwordHash *string, expiresAt *time.Time, maxDownloads *int) (*ShareLink, error) {
+// CreateShareLink generates a public token for a file or folder.
+func (d *DB) CreateShareLink(fileID *string, folderID *string, passwordHash *string, expiresAt *time.Time, maxDownloads *int) (*ShareLink, error) {
+	if fileID == nil && folderID == nil {
+		return nil, fmt.Errorf("must specify either file_id or folder_id")
+	}
 	id := generateID()
 	token := generateID() + generateID() // 32 hex chars
 	_, err := d.Exec(`
-		INSERT INTO share_links (id, token, file_id, password_hash, expires_at, max_downloads)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, id, token, fileID, passwordHash, expiresAt, maxDownloads)
+		INSERT INTO share_links (id, token, file_id, folder_id, password_hash, expires_at, max_downloads)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, id, token, fileID, folderID, passwordHash, expiresAt, maxDownloads)
 	if err != nil {
 		return nil, err
 	}
@@ -570,9 +574,9 @@ func (d *DB) CreateShareLink(fileID string, passwordHash *string, expiresAt *tim
 func (d *DB) GetShareLink(token string) (*ShareLink, error) {
 	var sl ShareLink
 	err := d.QueryRow(`
-		SELECT id, token, file_id, password_hash, expires_at, download_count, max_downloads, created_at
+		SELECT id, token, file_id, folder_id, password_hash, expires_at, download_count, max_downloads, created_at
 		FROM share_links WHERE token = ?
-	`, token).Scan(&sl.ID, &sl.Token, &sl.FileID, &sl.PasswordHash, &sl.ExpiresAt, &sl.DownloadCount, &sl.MaxDownloads, &sl.CreatedAt)
+	`, token).Scan(&sl.ID, &sl.Token, &sl.FileID, &sl.FolderID, &sl.PasswordHash, &sl.ExpiresAt, &sl.DownloadCount, &sl.MaxDownloads, &sl.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -588,8 +592,11 @@ func (d *DB) IncrementShareDownload(token string) error {
 type ShareLinkInfo struct {
 	ID            string     `json:"id"`
 	Token         string     `json:"token"`
-	FileID        string     `json:"file_id"`
-	FileName      string     `json:"file_name"`
+	FileID        *string    `json:"file_id,omitempty"`
+	FolderID      *string    `json:"folder_id,omitempty"`
+	Type          string     `json:"type"` // "file" or "folder"
+	TargetName    string     `json:"target_name"`
+	FileName      string     `json:"file_name"` // for backwards compatibility
 	FileSize      int64      `json:"file_size"`
 	HasPassword   bool       `json:"has_password"`
 	ExpiresAt     *time.Time `json:"expires_at"`
@@ -598,14 +605,17 @@ type ShareLinkInfo struct {
 	CreatedAt     time.Time  `json:"created_at"`
 }
 
-// ListShareLinks returns all active public share links joined with file metadata.
+// ListShareLinks returns all active public share links joined with file/folder metadata.
 func (d *DB) ListShareLinks() ([]ShareLinkInfo, error) {
 	rows, err := d.Query(`
-		SELECT s.id, s.token, s.file_id, COALESCE(f.name, 'Deleted File'), COALESCE(f.size, 0),
+		SELECT s.id, s.token, s.file_id, s.folder_id,
+		       COALESCE(f.name, fo.name, 'Deleted Item'),
+		       COALESCE(f.size, 0),
 		       (s.password_hash IS NOT NULL AND s.password_hash != ''),
 		       s.expires_at, s.download_count, s.max_downloads, s.created_at
 		FROM share_links s
 		LEFT JOIN files f ON s.file_id = f.id
+		LEFT JOIN folders fo ON s.folder_id = fo.id
 		ORDER BY s.created_at DESC
 	`)
 	if err != nil {
@@ -616,8 +626,16 @@ func (d *DB) ListShareLinks() ([]ShareLinkInfo, error) {
 	var shares []ShareLinkInfo
 	for rows.Next() {
 		var s ShareLinkInfo
-		if err := rows.Scan(&s.ID, &s.Token, &s.FileID, &s.FileName, &s.FileSize, &s.HasPassword, &s.ExpiresAt, &s.DownloadCount, &s.MaxDownloads, &s.CreatedAt); err != nil {
+		var targetName string
+		if err := rows.Scan(&s.ID, &s.Token, &s.FileID, &s.FolderID, &targetName, &s.FileSize, &s.HasPassword, &s.ExpiresAt, &s.DownloadCount, &s.MaxDownloads, &s.CreatedAt); err != nil {
 			return nil, err
+		}
+		s.TargetName = targetName
+		s.FileName = targetName
+		if s.FolderID != nil {
+			s.Type = "folder"
+		} else {
+			s.Type = "file"
 		}
 		shares = append(shares, s)
 	}
@@ -628,5 +646,67 @@ func (d *DB) ListShareLinks() ([]ShareLinkInfo, error) {
 func (d *DB) DeleteShareLink(id string) error {
 	_, err := d.Exec("DELETE FROM share_links WHERE id = ? OR token = ?", id, id)
 	return err
+}
+
+// BatchTrash marks multiple files and folders as deleted in Virtual Trash.
+func (d *DB) BatchTrash(fileIDs []string, folderIDs []string) error {
+	for _, id := range fileIDs {
+		if err := d.SoftDeleteFile(id); err != nil {
+			return err
+		}
+	}
+	for _, id := range folderIDs {
+		if err := d.SoftDeleteFolder(id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// BatchMove relocates multiple files and folders to a target folder (or root if nil).
+func (d *DB) BatchMove(fileIDs []string, folderIDs []string, targetFolderID *string) error {
+	for _, id := range fileIDs {
+		if err := d.MoveFile(id, targetFolderID); err != nil {
+			return err
+		}
+	}
+	for _, id := range folderIDs {
+		if err := d.MoveFolder(id, targetFolderID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// IsFileInFolderHierarchy checks whether fileID is directly or indirectly within rootFolderID.
+func (d *DB) IsFileInFolderHierarchy(fileID string, rootFolderID string) (bool, error) {
+	var count int
+	err := d.QueryRow(`
+		WITH RECURSIVE subfolders AS (
+			SELECT id FROM folders WHERE id = ?
+			UNION ALL
+			SELECT f.id FROM folders f JOIN subfolders s ON f.parent_id = s.id
+		)
+		SELECT COUNT(1) FROM files
+		WHERE id = ? AND folder_id IN (SELECT id FROM subfolders) AND deleted_at IS NULL
+	`, rootFolderID, fileID).Scan(&count)
+	return count > 0, err
+}
+
+// IsFolderInFolderHierarchy checks whether folderID is identical to or a subfolder of rootFolderID.
+func (d *DB) IsFolderInFolderHierarchy(folderID string, rootFolderID string) (bool, error) {
+	if folderID == rootFolderID {
+		return true, nil
+	}
+	var count int
+	err := d.QueryRow(`
+		WITH RECURSIVE subfolders AS (
+			SELECT id FROM folders WHERE id = ?
+			UNION ALL
+			SELECT f.id FROM folders f JOIN subfolders s ON f.parent_id = s.id
+		)
+		SELECT COUNT(1) FROM subfolders WHERE id = ?
+	`, rootFolderID, folderID).Scan(&count)
+	return count > 0, err
 }
 
