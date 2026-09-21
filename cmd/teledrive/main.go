@@ -26,7 +26,7 @@ func main() {
 
 	switch os.Args[1] {
 	case "version", "--version", "-v":
-		fmt.Println("TeleDrive v1.3.1")
+		fmt.Println("TeleDrive v1.4.0")
 		fmt.Println("Created by Herliansyah (https://github.com/herliansyah)")
 		fmt.Println("Licensed under the MIT License")
 		fmt.Println("Repository: https://github.com/herliansyah/teledrive")
