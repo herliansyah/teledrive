@@ -18,6 +18,7 @@ import (
 	"teledrive/internal/crypto"
 	"teledrive/internal/db"
 	"teledrive/internal/telegram"
+	"teledrive/internal/update"
 	"teledrive/internal/web"
 )
 
@@ -193,14 +194,14 @@ func runServer(cfg *app.Config) {
 
 func runUpload(cfg *app.Config, args []string) {
 	if len(args) < 1 {
-		fmt.Println("Usage: teledrive upload <filepath> [--folder <folder_id>]")
+		fmt.Println("Usage: teledrive upload <filepath_or_dir> [--folder <folder_id>]")
 		return
 	}
 
-	filePath := args[0]
-	fileInfo, err := os.Stat(filePath)
+	targetPath := args[0]
+	fileInfo, err := os.Stat(targetPath)
 	if err != nil {
-		fmt.Printf("Error accessing file %s: %v\n", filePath, err)
+		fmt.Printf("Error accessing path %s: %v\n", targetPath, err)
 		return
 	}
 
@@ -211,13 +212,6 @@ func runUpload(cfg *app.Config, args []string) {
 			folderID = &val
 		}
 	}
-
-	f, err := os.Open(filePath)
-	if err != nil {
-		fmt.Printf("Error opening file: %v\n", err)
-		return
-	}
-	defer f.Close()
 
 	database := openDatabase(cfg)
 	defer database.Close()
@@ -245,6 +239,95 @@ func runUpload(cfg *app.Config, args []string) {
 		mgr.SetConfiguredChannelID(cfg.StorageChannelID)
 	}
 	limiter := telegram.NewSafeLimiter()
+
+	if fileInfo.IsDir() {
+		runUploadDir(cfg, database, mgr, limiter, targetPath, folderID)
+		return
+	}
+
+	uploadSingleFile(cfg, database, mgr, limiter, targetPath, folderID)
+}
+
+func getOrCreateFolder(database *db.DB, name string, parentID *string) (string, error) {
+	existing, err := database.ListFolders(parentID)
+	if err == nil {
+		for _, f := range existing {
+			if f.Name == name {
+				return f.ID, nil
+			}
+		}
+	}
+	newFolder, err := database.CreateFolder(name, parentID)
+	if err != nil {
+		return "", err
+	}
+	return newFolder.ID, nil
+}
+
+func runUploadDir(cfg *app.Config, database *db.DB, mgr *telegram.ClientManager, limiter *telegram.SafeLimiter, dirPath string, rootFolderID *string) {
+	cleanDir := filepath.Clean(dirPath)
+	baseDir := filepath.Base(cleanDir)
+	fmt.Printf("Uploading directory %q and all subfolders...\n", baseDir)
+
+	folderMap := make(map[string]string)
+	topID, err := getOrCreateFolder(database, baseDir, rootFolderID)
+	if err != nil {
+		fmt.Printf("Error creating root virtual folder %s: %v\n", baseDir, err)
+		return
+	}
+	folderMap["."] = topID
+
+	count := 0
+	err = filepath.WalkDir(cleanDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(cleanDir, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+
+		if d.IsDir() {
+			parentRel := filepath.Dir(rel)
+			parentID := folderMap[parentRel]
+			fID, err := getOrCreateFolder(database, d.Name(), &parentID)
+			if err != nil {
+				return err
+			}
+			folderMap[rel] = fID
+			return nil
+		}
+
+		parentRel := filepath.Dir(rel)
+		targetFolderID := folderMap[parentRel]
+		uploadSingleFile(cfg, database, mgr, limiter, path, &targetFolderID)
+		count++
+		return nil
+	})
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "\nDirectory upload error: %v\n", err)
+	} else {
+		fmt.Printf("\n✓ Directory upload complete! (%d files processed)\n", count)
+	}
+}
+
+func uploadSingleFile(cfg *app.Config, database *db.DB, mgr *telegram.ClientManager, limiter *telegram.SafeLimiter, filePath string, folderID *string) {
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		fmt.Printf("Error accessing file %s: %v\n", filePath, err)
+		return
+	}
+
+	f, err := os.Open(filePath)
+	if err != nil {
+		fmt.Printf("Error opening file: %v\n", err)
+		return
+	}
+	defer f.Close()
 
 	fileName := filepath.Base(filePath)
 	mimeType := detectMimeType(fileName)
@@ -274,17 +357,49 @@ func runUpload(cfg *app.Config, args []string) {
 			return err
 		}
 
-		fmt.Println("\nFinalizing database record...")
 		_, err = database.CreateFileWithID(fileUID, folderID, fileName, size, mimeType, msgID, strconv.FormatInt(docID, 10), strconv.FormatInt(accessHash, 10), shaHex, 1)
 		return err
 	})
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "\nUpload failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "\nUpload failed for %s: %v\n", fileName, err)
 		return
 	}
 
-	fmt.Println("✓ Upload complete! File safely stored in Telegram Storage Channel.")
+	fmt.Printf("\n✓ %s safely stored in Telegram Storage Channel.\n", fileName)
+}
+
+func runUpdate(cfg *app.Config) {
+	fmt.Printf("Checking for updates (current version: v%s)...\n", app.Version)
+	res, err := update.CheckForUpdate(nil)
+	if err != nil {
+		fmt.Printf("Error checking for updates: %v\n", err)
+		return
+	}
+
+	if !res.UpdateAvailable {
+		fmt.Printf("TeleDrive is up to date (v%s).\n", app.Version)
+		return
+	}
+
+	fmt.Printf("New version available: %s (Current: v%s)\n", res.LatestVersion, app.Version)
+	if res.Release != nil {
+		fmt.Printf("Release: %s\n", res.Release.Name)
+	}
+
+	name, downloadURL, err := update.FindAssetForCurrentPlatform(res.Release)
+	if err != nil {
+		fmt.Printf("Error finding compatible release asset: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Downloading %s from %s...\n", name, downloadURL)
+	if err := update.ApplyUpdate(downloadURL); err != nil {
+		fmt.Printf("Failed to apply update: %v\n", err)
+		return
+	}
+
+	fmt.Printf("✓ TeleDrive successfully updated to %s!\n", res.LatestVersion)
 }
 
 func detectMimeType(name string) string {

@@ -584,6 +584,66 @@ func TestWebServer_FolderShareAndBatchOperations(t *testing.T) {
 	}
 }
 
+func TestWebServer_ChangelogAndSystemUpdateAPI(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer database.Close()
+
+	cfg := &app.Config{
+		Port:          "8080",
+		DBPath:        dbPath,
+		SecretKey:     "test-secret-key-32bytes-for-hmac",
+		AdminPassword: "adminpassword",
+	}
+	server, err := NewServer(cfg, database, nil)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+
+	// 1. Test Changelog endpoint (public)
+	req := httptest.NewRequest("GET", "/api/changelog", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for /api/changelog, got %d", rec.Code)
+	}
+	var changelogData map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&changelogData); err != nil {
+		t.Fatalf("Failed to parse changelog response: %v", err)
+	}
+	if changelogData["version"] != "1.5.0" {
+		t.Errorf("Expected version 1.5.0, got %v", changelogData["version"])
+	}
+	if content, ok := changelogData["content"].(string); !ok || content == "" {
+		t.Errorf("Expected non-empty changelog content")
+	}
+
+	// 2. Test System Update Check (unauthorized without auth)
+	req = httptest.NewRequest("GET", "/api/system/update", nil)
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther && rec.Code != http.StatusUnauthorized {
+		t.Fatalf("Expected redirect or unauthorized for /api/system/update without auth, got %d", rec.Code)
+	}
+
+	// Authenticated request
+	authCookie := &http.Cookie{
+		Name:  "teledrive_session",
+		Value: crypto.GenerateSessionToken(cfg.SecretKey, 1*time.Hour),
+	}
+	req = httptest.NewRequest("GET", "/api/system/update", nil)
+	req.AddCookie(authCookie)
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("Expected application/json content type, got %s", rec.Header().Get("Content-Type"))
+	}
+}
+
 
 
 

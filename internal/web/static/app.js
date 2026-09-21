@@ -73,6 +73,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupMobileSidebar();
     loadDriveContent();
     updateViewButtons();
+    checkSystemUpdate();
 });
 
 // --- Theme Management ---
@@ -827,12 +828,16 @@ function handleSnapshotFileSelect(event) {
     });
 }
 
-// --- Upload Management (Sequential Safe Mode) ---
+// --- Upload Management (Sequential Safe Mode & Recursive Folder Upload) ---
+let batchConflictPolicy = null;
+let conflictResolver = null;
+
 function setupDropzone() {
     const dropzone = document.getElementById("dropzone");
     const fileInput = document.getElementById("file-input");
+    const folderInput = document.getElementById("folder-input");
 
-    if (!dropzone || !fileInput) return;
+    if (!dropzone) return;
 
     ["dragenter", "dragover"].forEach(evt => {
         dropzone.addEventListener(evt, e => {
@@ -848,37 +853,257 @@ function setupDropzone() {
         });
     });
 
-    dropzone.addEventListener("drop", e => {
-        if (e.dataTransfer.files.length > 0) {
-            handleQueueFiles(e.dataTransfer.files);
+    dropzone.addEventListener("drop", async e => {
+        e.preventDefault();
+        dropzone.classList.remove("dragover");
+        const scanned = await scanDataTransfer(e.dataTransfer);
+        if (scanned.length > 0) {
+            handleQueueItems(scanned);
         }
     });
 
-    fileInput.addEventListener("change", e => {
-        if (e.target.files.length > 0) {
-            handleQueueFiles(e.target.files);
+    if (fileInput) {
+        fileInput.addEventListener("change", e => {
+            if (e.target.files.length > 0) {
+                const items = Array.from(e.target.files).map(f => ({ file: f, path: f.name }));
+                handleQueueItems(items);
+                fileInput.value = "";
+            }
+        });
+    }
+
+    if (folderInput) {
+        folderInput.addEventListener("change", e => {
+            if (e.target.files.length > 0) {
+                const items = Array.from(e.target.files).map(f => ({
+                    file: f,
+                    path: f.webkitRelativePath || f.name
+                }));
+                handleQueueItems(items);
+                folderInput.value = "";
+            }
+        });
+    }
+}
+
+async function scanDataTransfer(dataTransfer) {
+    const items = dataTransfer.items;
+    if (!items || items.length === 0) {
+        return Array.from(dataTransfer.files || []).map(f => ({ file: f, path: f.name }));
+    }
+
+    const fileEntries = [];
+
+    async function traverseEntry(entry, currentPath = "") {
+        if (!entry) return;
+        if (entry.isFile) {
+            return new Promise((resolve) => {
+                entry.file((file) => {
+                    fileEntries.push({
+                        file: file,
+                        path: (currentPath ? currentPath + "/" : "") + file.name
+                    });
+                    resolve();
+                }, () => resolve());
+            });
+        } else if (entry.isDirectory) {
+            const dirReader = entry.createReader();
+            const readEntries = () => new Promise((resolve) => {
+                dirReader.readEntries(resolve, () => resolve([]));
+            });
+
+            const nextPath = currentPath ? currentPath + "/" + entry.name : entry.name;
+            let entries = await readEntries();
+            while (entries && entries.length > 0) {
+                for (const child of entries) {
+                    await traverseEntry(child, nextPath);
+                }
+                entries = await readEntries();
+            }
         }
+    }
+
+    const promises = [];
+    for (let i = 0; i < items.length; i++) {
+        const entry = items[i].webkitGetAsEntry ? items[i].webkitGetAsEntry() : null;
+        if (entry) {
+            promises.push(traverseEntry(entry));
+        } else if (items[i].kind === "file") {
+            const f = items[i].getAsFile();
+            if (f) fileEntries.push({ file: f, path: f.name });
+        }
+    }
+    await Promise.all(promises);
+    return fileEntries;
+}
+
+function askConflictResolution(fileName) {
+    if (batchConflictPolicy) {
+        return Promise.resolve(batchConflictPolicy);
+    }
+    return new Promise((resolve) => {
+        const modal = document.getElementById("conflict-modal");
+        const msg = document.getElementById("conflict-message");
+        const applyCheck = document.getElementById("conflict-apply-all");
+        if (applyCheck) applyCheck.checked = false;
+        if (msg) msg.innerText = `An item named "${fileName}" already exists in this folder. How would you like to proceed?`;
+        if (modal) modal.style.display = "flex";
+
+        conflictResolver = (choice) => {
+            if (modal) modal.style.display = "none";
+            if (applyCheck && applyCheck.checked) {
+                batchConflictPolicy = choice;
+            }
+            resolve(choice);
+        };
     });
 }
 
-function handleQueueFiles(fileList) {
+function resolveConflict(choice) {
+    if (conflictResolver) {
+        const fn = conflictResolver;
+        conflictResolver = null;
+        fn(choice);
+    }
+}
+
+function generateUniqueFileName(name, existingNames) {
+    const extIdx = name.lastIndexOf(".");
+    const base = extIdx > 0 ? name.substring(0, extIdx) : name;
+    const ext = extIdx > 0 ? name.substring(extIdx) : "";
+
+    let counter = 1;
+    let candidate = `${base} (${counter})${ext}`;
+    while (existingNames.includes(candidate)) {
+        counter++;
+        candidate = `${base} (${counter})${ext}`;
+    }
+    return candidate;
+}
+
+async function ensureFolderPath(dirSegments, rootParentId, cache) {
+    let currentParent = rootParentId;
+    for (const dirName of dirSegments) {
+        const cacheKey = (currentParent || "root") + "::" + dirName;
+        if (cache.has(cacheKey)) {
+            currentParent = cache.get(cacheKey);
+            continue;
+        }
+
+        const url = currentParent ? `/api/folders?parent_id=${encodeURIComponent(currentParent)}` : `/api/folders`;
+        const res = await fetch(url);
+        let folderId = null;
+        if (res.ok) {
+            const list = await res.json();
+            const found = (list || []).find(f => f.name === dirName);
+            if (found) folderId = found.id;
+        }
+
+        if (!folderId) {
+            const createRes = await fetch("/api/folders", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: dirName, parent_id: currentParent })
+            });
+            if (!createRes.ok) {
+                throw new Error(`Could not create virtual folder "${dirName}"`);
+            }
+            const created = await createRes.json();
+            folderId = created.id;
+        }
+
+        cache.set(cacheKey, folderId);
+        currentParent = folderId;
+    }
+    return currentParent;
+}
+
+async function handleQueueItems(items) {
+    if (!items || items.length === 0) return;
+    batchConflictPolicy = null;
+
     const drawer = document.getElementById("upload-drawer");
     if (drawer) drawer.style.display = "block";
 
-    for (let i = 0; i < fileList.length; i++) {
-        const item = {
+    const folderCache = new Map();
+    const baseFolderId = currentFolderId;
+    const filesInFolderCache = new Map();
+
+    async function getFilesInFolder(fId) {
+        const key = fId || "root";
+        if (filesInFolderCache.has(key)) {
+            return filesInFolderCache.get(key);
+        }
+        try {
+            const url = fId ? `/api/files?folder_id=${encodeURIComponent(fId)}` : `/api/files`;
+            const res = await fetch(url);
+            if (res.ok) {
+                const files = await res.json();
+                filesInFolderCache.set(key, files || []);
+                return files || [];
+            }
+        } catch (_) {}
+        return [];
+    }
+
+    for (const item of items) {
+        const fullPath = item.path.replace(/^\/+/, "");
+        const pathSegments = fullPath.split("/").filter(Boolean);
+        const fileName = pathSegments.pop() || item.file.name;
+        const dirSegments = pathSegments;
+
+        let targetFolderId = baseFolderId;
+        if (dirSegments.length > 0) {
+            try {
+                targetFolderId = await ensureFolderPath(dirSegments, baseFolderId, folderCache);
+            } catch (err) {
+                showToast(`Folder creation failed for ${fullPath}: ${err.message}`, "error");
+                continue;
+            }
+        }
+
+        const existingFiles = await getFilesInFolder(targetFolderId);
+        const existingFile = existingFiles.find(f => f.name === fileName);
+
+        let finalFileName = fileName;
+        let replaceFileId = null;
+
+        if (existingFile) {
+            const action = await askConflictResolution(fileName);
+            if (action === "skip") {
+                continue;
+            } else if (action === "keep_both") {
+                finalFileName = generateUniqueFileName(fileName, existingFiles.map(f => f.name));
+            } else if (action === "replace") {
+                replaceFileId = existingFile.id;
+            }
+        }
+
+        const queueItem = {
             id: "upl_" + Math.random().toString(36).substring(2, 9),
-            file: fileList[i],
+            file: item.file,
+            targetFolderId: targetFolderId,
+            fileName: finalFileName,
+            replaceFileId: replaceFileId,
             status: "queued",
             progress: 0,
             error: null
         };
-        uploadQueue.push(item);
+        uploadQueue.push(queueItem);
         uploadStats.total++;
+
+        existingFiles.push({ name: finalFileName, id: queueItem.id });
+        renderUploadDrawer();
     }
 
     renderUploadDrawer();
     processNextUpload();
+}
+
+// Backward compatibility helper
+function handleQueueFiles(fileList) {
+    const items = Array.from(fileList).map(f => ({ file: f, path: f.name }));
+    handleQueueItems(items);
 }
 
 async function processNextUpload() {
@@ -886,7 +1111,6 @@ async function processNextUpload() {
     const currentItem = uploadQueue.find(item => item.status === "queued");
     if (!currentItem) {
         if (uploadQueue.every(i => i.status === "completed" || i.status === "failed")) {
-            // All done
             setTimeout(() => {
                 const drawer = document.getElementById("upload-drawer");
                 if (drawer && uploadQueue.every(i => i.status === "completed")) {
@@ -903,6 +1127,8 @@ async function processNextUpload() {
     renderUploadDrawer();
 
     const file = currentItem.file;
+    const uploadName = currentItem.fileName || file.name;
+    const uploadFolderId = currentItem.targetFolderId !== undefined ? currentItem.targetFolderId : currentFolderId;
 
     try {
         // 1. Init upload session
@@ -910,10 +1136,10 @@ async function processNextUpload() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                name: file.name,
+                name: uploadName,
                 size: file.size,
                 mime_type: file.type || "application/octet-stream",
-                folder_id: currentFolderId
+                folder_id: uploadFolderId
             })
         });
 
@@ -968,17 +1194,24 @@ async function processNextUpload() {
         });
         if (!completeRes.ok) throw new Error("Telegram MTProto document assembly failed");
 
+        // If replacing an existing file, clean up the superseded file
+        if (currentItem.replaceFileId) {
+            try {
+                await fetch(`/api/files/${currentItem.replaceFileId}`, { method: "DELETE" });
+            } catch (_) {}
+        }
+
         currentItem.status = "completed";
         currentItem.progress = 100;
         currentItem.chunkStatus = "Uploaded to Telegram Vault";
         uploadStats.completed++;
-        showToast(`Uploaded ${file.name}`, "success");
+        showToast(`Uploaded ${uploadName}`, "success");
         loadDriveContent();
     } catch (err) {
         currentItem.status = "failed";
         currentItem.error = err.message;
         uploadStats.failed++;
-        showToast(`Upload failed: ${file.name} (${err.message})`, "error");
+        showToast(`Upload failed: ${uploadName} (${err.message})`, "error");
     } finally {
         isUploading = false;
         renderUploadDrawer();
@@ -1007,7 +1240,7 @@ function renderUploadDrawer() {
     body.innerHTML = uploadQueue.map(item => `
         <div class="upload-item">
             <div class="upload-item-header">
-                <span class="upload-item-name" title="${escapeHtml(item.file.name)}">${escapeHtml(item.file.name)}</span>
+                <span class="upload-item-name" title="${escapeHtml(item.fileName || item.file.name)}">${escapeHtml(item.fileName || item.file.name)}</span>
                 <span class="upload-item-status">
                     ${item.status === "uploading" ? (item.chunkStatus || `${item.progress}%`) : ""}
                     ${item.status === "completed" ? `<span style="color: var(--success);">${getIcon("check", "icon-sm")} Done</span>` : ""}
@@ -1783,3 +2016,153 @@ document.addEventListener("keydown", (e) => {
         }
     }
 });
+
+// --- Changelog Modal Viewer ---
+async function openChangelogModal() {
+    const modal = document.getElementById("changelog-modal");
+    const body = document.getElementById("changelog-body");
+    const verTag = document.getElementById("changelog-version-tag");
+    if (!modal || !body) return;
+
+    modal.style.display = "flex";
+    body.innerHTML = "<p style='color: var(--text-muted);'>Loading changelog...</p>";
+
+    try {
+        const res = await fetch("/api/changelog");
+        if (!res.ok) throw new Error("Could not load changelog");
+        const data = await res.json();
+        if (verTag) verTag.innerText = `Installed: v${data.version || "1.5.0"}`;
+        body.innerHTML = renderMarkdown(data.content);
+    } catch (err) {
+        body.innerHTML = `<p style="color: var(--danger);">Failed to load changelog: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+function closeChangelogModal() {
+    const modal = document.getElementById("changelog-modal");
+    if (modal) modal.style.display = "none";
+}
+
+function renderMarkdown(md) {
+    if (!md) return "";
+    let html = escapeHtml(md);
+
+    // Headers
+    html = html.replace(/^### (.*$)/gim, '<h4 style="margin-top: 14px; margin-bottom: 6px; font-weight: 700; color: var(--text-primary);">$1</h4>');
+    html = html.replace(/^## (.*$)/gim, '<h3 style="margin-top: 20px; margin-bottom: 8px; font-weight: 700; color: var(--primary); border-bottom: 1px solid var(--border-subtle); padding-bottom: 4px;">$1</h3>');
+    html = html.replace(/^# (.*$)/gim, '<h2 style="margin-bottom: 12px; font-weight: 800; color: var(--text-primary);">$1</h2>');
+
+    // Bold & Code
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/`([^`]+)`/g, '<code style="background: var(--bg-surface-active); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.85em;">$1</code>');
+
+    // Lists
+    html = html.replace(/^\s*-\s+(.*$)/gim, '<li style="margin-left: 20px; margin-bottom: 4px;">$1</li>');
+
+    // Links
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color: var(--primary); text-decoration: underline;">$1</a>');
+
+    // Paragraphs
+    html = html.replace(/\n\n/g, '<br><br>');
+    return html;
+}
+
+// --- Auto-Update System ---
+let latestReleaseData = null;
+
+async function checkSystemUpdate() {
+    try {
+        const res = await fetch("/api/system/update");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.update_available && data.release) {
+            latestReleaseData = data;
+            const badge = document.getElementById("sidebar-update-badge");
+            const badgeText = document.getElementById("sidebar-update-text");
+            if (badge) badge.style.display = "block";
+            if (badgeText) badgeText.innerText = `Update to ${data.latest_version}`;
+        }
+    } catch (_) {
+        // Silent fallback when offline
+    }
+}
+
+function openUpdateModal() {
+    const modal = document.getElementById("update-modal");
+    if (!modal) return;
+
+    if (latestReleaseData) {
+        const curVer = document.getElementById("update-current-ver");
+        const latVer = document.getElementById("update-latest-ver");
+        const notes = document.getElementById("update-release-notes");
+        if (curVer) curVer.innerText = `v${latestReleaseData.current_version}`;
+        if (latVer) latVer.innerText = latestReleaseData.latest_version;
+        if (notes && latestReleaseData.release) {
+            notes.innerText = latestReleaseData.release.body || "No release notes provided.";
+        }
+    }
+
+    const content = document.getElementById("update-modal-content");
+    const footer = document.getElementById("update-modal-footer");
+    const progress = document.getElementById("update-progress-container");
+    if (content) content.style.display = "block";
+    if (footer) footer.style.display = "flex";
+    if (progress) progress.style.display = "none";
+
+    modal.style.display = "flex";
+}
+
+function closeUpdateModal() {
+    const modal = document.getElementById("update-modal");
+    if (modal) modal.style.display = "none";
+}
+
+async function applyUpdate() {
+    const content = document.getElementById("update-modal-content");
+    const footer = document.getElementById("update-modal-footer");
+    const progress = document.getElementById("update-progress-container");
+    const statusText = document.getElementById("update-status-text");
+
+    if (content) content.style.display = "none";
+    if (footer) footer.style.display = "none";
+    if (progress) progress.style.display = "block";
+
+    try {
+        const res = await fetch("/api/system/update", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+        });
+        if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(errText || "Update failed to apply");
+        }
+
+        if (statusText) {
+            statusText.innerText = "Update applied successfully! Reconnecting to TeleDrive...";
+        }
+
+        let attempts = 0;
+        const pollInterval = setInterval(async () => {
+            attempts++;
+            try {
+                const ping = await fetch("/api/changelog?t=" + Date.now());
+                if (ping.ok) {
+                    clearInterval(pollInterval);
+                    showToast("TeleDrive successfully updated! Reloading...", "success");
+                    setTimeout(() => window.location.reload(), 1200);
+                }
+            } catch (_) {
+                if (attempts > 30) {
+                    clearInterval(pollInterval);
+                    if (statusText) statusText.innerText = "Update applied. Please refresh the page manually.";
+                }
+            }
+        }, 1500);
+
+    } catch (err) {
+        if (progress) progress.style.display = "none";
+        if (content) content.style.display = "block";
+        if (footer) footer.style.display = "flex";
+        showToast("Update failed: " + err.message, "error");
+    }
+}
