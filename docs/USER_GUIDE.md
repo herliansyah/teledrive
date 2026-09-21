@@ -100,6 +100,15 @@ By default, TeleDrive scans for an available port starting at `8080` and display
 
 #### Step 4: Virtual Folder & File Management
 - Click **New Folder** to create hierarchical directories.
+- **Recursive Folder Upload (Web & CLI)**:
+  - **Web Dashboard**: Click **Upload Folder** in the sidebar (using native HTML5 directory picker) or drag and drop an entire local folder onto the file explorer. TeleDrive traverses subdirectories recursively using the HTML5 FileSystem API (`webkitGetAsEntry`), replicates the nested Virtual Folder tree in SQLite, and queues all files for upload.
+  - **CLI Directory Upload**: Run `teledrive upload <path_to_directory>`. TeleDrive automatically detects directory targets, traverses nested subdirectories (`filepath.WalkDir`), provisions matching virtual folders, and streams files sequentially into Telegram.
+- **Upload Conflict Resolution Modal**:
+  - If an uploaded item collides with an existing file or folder in the target destination, an interactive conflict dialog appears with three resolution strategies:
+    - **Replace**: Overwrites the existing item.
+    - **Keep Both**: Renames the incoming item with an auto-incremented numerical suffix (e.g., `document (1).pdf`).
+    - **Skip**: Ignores the duplicate and continues the queue.
+  - Check **Apply to all remaining conflicts** to batch-resolve subsequent collisions automatically.
 - **Drag-and-Drop Organization**: Drag files or folders directly into folder cards/rows or onto the breadcrumb trail to move them instantly.
 - **Move to Dialog**: Select **Move** from the item context menu (`⋮`) to pick any destination folder interactively.
 - **Multi-Select & Bulk Operations**: Check items individually or use the select-all checkbox to activate the floating bulk action bar:
@@ -185,6 +194,16 @@ TeleDrive implements safety-first staging for all file and folder deletions:
 3. **Empty Trash**: Permanently purges all staged items and deletes the corresponding messages from your private Telegram storage channel.
 4. **Automated 30-Day Purge**: A background maintenance worker automatically purges trash items older than 30 days every 24 hours.
 
+#### Step 9: In-App Self-Update & Changelog Viewer
+TeleDrive includes zero-effort lifecycle updates and release tracking:
+1. **Automated Update Notification**: On dashboard launch, TeleDrive checks GitHub Releases in the background (`/api/system/update`). If a newer release is published, a non-intrusive update banner appears at the top of the interface.
+2. **1-Click Self-Update**: Click **Update Now** in the dashboard banner or Settings modal. TeleDrive downloads the architecture-specific binary release, substitutes the active binary on disk atomically, and triggers a graceful server restart.
+3. **CLI Terminal Update**: Update directly from the terminal at any time by running:
+   ```bash
+   ./teledrive update
+   ```
+4. **Interactive Changelog Viewer**: Click the version badge in the bottom-left sidebar or open the Help modal to view release notes, new features, and upgrade history rendered directly from `CHANGELOG.md`.
+
 ---
 
 ### 5. Security & Telegram Safe Mode
@@ -212,6 +231,12 @@ Yes! Any application supporting WebDAV or mounted network paths (such as VLC pla
 
 #### Q: How does Virtual Trash affect Telegram channel storage?
 Soft-deleted files remain in Telegram until you click **Empty Trash** or the 30-day background purge worker runs. Once purged, TeleDrive issues `DeleteMessages` to delete the messages from Telegram.
+
+#### Q: How does Recursive Folder Upload handle deep directory trees?
+TeleDrive creates matching Virtual Folders top-down in SQLite and uploads each file sequentially into its corresponding folder container. Because files are sliced in memory and streamed directly to MTProto without intermediate spooling, uploading deep trees uses minimal RAM and zero extra VPS disk space.
+
+#### Q: How does In-App Self-Update work and does it lose settings?
+Self-update fetches the official pre-compiled binary matching your OS and architecture (`linux-amd64`, `darwin-arm64`, etc.) from GitHub Releases, replaces the binary executable, and restarts the process. Your SQLite database (`teledrive.db`), session keys, and configurations remain untouched.
 
 #### Q: What happens if my server crashes or I move to another PC/VPS?
 Because your SQLite metadata database is automatically snapshotted to your Telegram channel (`teledrive backup` or automated snapshots), moving to a new computer is seamless:
@@ -323,6 +348,15 @@ Secara otomatis, TeleDrive akan mencari port yang tersedia mulai dari `8080` dan
 
 #### Langkah 4: Manajemen Folder & Berkas Virtual
 - Klik tombol **New Folder** untuk membuat subfolder baru.
+- **Unggah Folder Rekursif (Web & CLI)**:
+  - **Dashboard Web**: Klik tombol **Upload Folder** di sidebar (menggunakan dialog direktori native HTML5) atau seret dan lepas (*drag & drop*) seluruh folder lokal ke antarmuka file explorer. TeleDrive membaca seluruh subdirektori secara rekursif via HTML5 FileSystem API (`webkitGetAsEntry`), membentuk ulang hierarki Folder Virtual di database SQLite, dan mengantrekan seluruh berkas untuk diunggah.
+  - **Unggah Folder via CLI**: Jalankan `teledrive upload <jalur_folder>`. TeleDrive otomatis mendeteksi target folder, menelusuri seluruh subfolder di dalamnya (`filepath.WalkDir`), membuat Virtual Folder yang sesuai, dan mengunggah berkas secara sekuensial ke Telegram.
+- **Dialog Resolusi Konflik Unggahan**:
+  - Jika berkas atau folder yang diunggah memiliki nama yang sama dengan item yang sudah ada, muncul dialog modal resolusi konflik dengan 3 strategi:
+    - **Replace**: Menimpa item yang sudah ada dengan berkas baru.
+    - **Keep Both**: Menyimpan kedua berkas dengan memberi akhiran angka otomatis (contoh: `laporan (1).pdf`).
+    - **Skip**: Mengabaikan berkas duplikat dan melanjutkan unggahan item berikutnya.
+  - Centang opsi **Apply to all remaining conflicts** untuk menerapkan keputusan resolusi yang sama ke seluruh berkas yang mengalami tabrakan nama secara otomatis.
 - **Drag-and-Drop Organisasi Berkas**: Tarik dan lepas (*drag & drop*) file atau folder langsung ke kartu/baris folder atau ke navigasi remah roti (*breadcrumb trail*) untuk memindahkannya secara instan.
 - **Dialog "Move to..."**: Pilih opsi **Move** pada menu aksi (`⋮`) untuk memilih folder tujuan secara interaktif.
 - **Multi-Pilih & Operasi Massal (Bulk Operations)**: Centang beberapa file/folder atau gunakan kotak centang pilih-semua untuk membuka bilah aksi melayang (*floating bulk action bar*):
@@ -408,6 +442,16 @@ TeleDrive mengedepankan keamanan data dengan sistem penampungan sementara (*soft
 3. **Kosongkan Sampah (Empty Trash)**: Menghapus seluruh item di tempat sampah secara permanen sekaligus memicu perintah penghapusan pesan (*DeleteMessages*) di channel privat Telegram Anda.
 4. **Pembersihan Otomatis 30 Hari**: Worker latar belakang TeleDrive akan otomatis menghapus item tempat sampah yang usianya sudah melewati 30 hari secara berkala setiap 24 jam.
 
+#### Langkah 9: Pembaruan Otomatis Mandiri (Self-Update) & Penampil Changelog
+TeleDrive mendukung pembaruan versi mandiri tanpa repot mengunduh atau mengompilasi ulang secara manual:
+1. **Notifikasi Pembaruan Otomatis**: Saat dashboard dibuka, TeleDrive memeriksa ketersediaan versi rilis terbaru di GitHub Releases melalui endpoint `/api/system/update`. Jika ada rilis baru, banner pembaruan yang elegan akan tampil di bagian atas dashboard.
+2. **Pembaruan 1-Klik di Web**: Klik tombol **Update Now** pada banner pembaruan atau modal Pengaturan. TeleDrive akan mengunduh paket binary sesuai sistem operasi dan arsitektur CPU Anda, menimpa file executable secara aman, dan me-restart server secara mulus (*graceful restart*).
+3. **Pembaruan via Terminal (CLI)**: Anda juga dapat memperbarui TeleDrive kapan saja langsung dari terminal:
+   ```bash
+   ./teledrive update
+   ```
+4. **Penampil Changelog Terintegrasi**: Klik badge nomor versi di sidebar kiri bawah atau buka dialog Bantuan untuk membaca catatan rilis, fitur baru, dan riwayat perbaikan yang diambil langsung dari `CHANGELOG.md`.
+
 ---
 
 ### 5. Keamanan & Kepatuhan Safe Mode
@@ -435,6 +479,12 @@ Bisa! Semua aplikasi yang mendukung WebDAV atau drive lokal (seperti VLC Player,
 
 #### T: Bagaimana pengaruh Virtual Trash terhadap kuota atau penyimpanan di Telegram?
 File yang ada di Virtual Trash masih tersimpan di Telegram sampai Anda mengklik **Empty Trash** atau dibersihkan otomatis oleh worker setelah 30 hari. Ketika dibersihkan, TeleDrive akan memanggil API Telegram untuk menghapus pesan terkait secara permanen.
+
+#### T: Bagaimana cara kerja Unggah Folder Rekursif saat memproses banyak subfolder?
+TeleDrive membaca struktur direktori secara top-down, membuat representasi Virtual Folder di database SQLite, lalu mengantrekan berkas untuk diunggah satu per satu secara sekuensial. Berkas dialirkan langsung ke Telegram dalam potongan memori tanpa disimpan di disk lokal VPS, sehingga konsumsi RAM dan disk tetap sangat hemat.
+
+#### T: Apakah pembaruan otomatis (Self-Update) menghapus database atau pengaturan saya?
+Sama sekali tidak. Proses self-update hanya mengganti file binary aplikasi TeleDrive dengan versi rilis resmi terbaru dari GitHub Releases. Seluruh database SQLite (`teledrive.db`), kunci enkripsi sesi, dan berkas konfigurasi Anda tetap aman dan tidak tersentuh.
 
 #### T: Bagaimana jika komputer/VPS saya rusak atau saya ingin pindah ke PC baru?
 Sangat mudah dan otomatis! Karena database metadata SQLite Anda dicadangkan ke channel Telegram:

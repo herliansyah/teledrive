@@ -45,6 +45,8 @@
   - Built-in **Mobile QR Code Generator** on public share links for frictionless smartphone handoff.
 - **📁 Virtual File System & Organization**:
   - Full hierarchical folder management backed by SQLite with WAL mode.
+  - **Recursive Folder Upload (Web & CLI)**: Upload entire directory trees from the Web UI ("Upload Folder" button or drag-and-drop via HTML5 FileSystem API) or terminal (`teledrive upload <path_to_dir>`).
+  - **Upload Conflict Resolution Modal**: Interactive conflict resolution with **Replace**, **Keep Both** (auto-incremented `name (1).ext`), and **Skip** options, with batch "Apply to all" support.
   - Native HTML5 **Drag-and-Drop** to move files and folders directly into folders or breadcrumb trails.
   - **Multi-Select & Bulk Operations**: Select multiple items with floating action bar for batch move and batch trash.
   - Interactive "Move to..." destination picker dialog and keyboard shortcuts (`F2` to rename, `Delete` to trash).
@@ -54,6 +56,11 @@
   - Share individual files or entire **Virtual Folders** (`/s/:token`) with secure jailed guest traversal and in-folder file streaming/downloads.
   - Flexible expiration options (Default "Never expires", 90 days, 1 year presets, or custom date/time picker).
   - Optional bcrypt password protection and built-in **Mobile QR Code Generator**.
+- **🔄 In-App & CLI Self-Update**:
+  - Automated update checks querying GitHub Releases API with dashboard banner notifications.
+  - 1-click update in Web dashboard with seamless binary replacement and graceful restart.
+  - Terminal command `teledrive update` for self-updating binary in place.
+  - Built-in interactive **Changelog Viewer** modal in the dashboard displaying release notes.
 - **🛡️ Primary Account Safe Mode (Strict Telegram ToS Compliance)**:
   - Realistic official desktop client telemetry fingerprinting (`PC 64bit`, `Linux/x86_64`, `AppVersion 5.0.0`).
   - Strict sequential single-worker queue (concurrency = 1) mimicking human desktop usage.
@@ -147,6 +154,9 @@ Open your browser and navigate to:
 # Upload a file to TeleDrive
 ./teledrive upload ./sample_video.mp4
 
+# Upload an entire directory tree recursively to TeleDrive
+./teledrive upload ./my_folder/
+
 # Upload to a specific virtual folder
 ./teledrive upload ./report.pdf --folder <folder_id>
 
@@ -161,6 +171,9 @@ Open your browser and navigate to:
 
 # Restore SQLite database from the pinned snapshot in your Telegram channel
 ./teledrive restore
+
+# Self-update TeleDrive binary to the latest GitHub release
+./teledrive update
 ```
 
 ---
@@ -213,6 +226,8 @@ Developed and maintained by **Herliansyah**:
   - Fitur **QR Code Generator** pada link publik untuk unduhan instan langsung dari smartphone.
 - **Struktur Folder Virtual & Pengorganisasian**:
   - Pengelolaan hierarki folder virtual berbasis SQLite WAL.
+  - **Unggah Folder Rekursif (Web & CLI)**: Unggah seluruh hierarki pohon folder langsung dari Web UI (tombol "Upload Folder" atau drag & drop via FileSystem API) maupun terminal (`teledrive upload <jalur_folder>`).
+  - **Dialog Resolusi Konflik Unggahan**: Penanganan tabrakan nama berkas/folder interaktif dengan opsi **Replace**, **Keep Both** (penomoran otomatis `nama (1).ext`), dan **Skip**, dilengkapi opsi *Apply to all*.
   - Fitur **Drag-and-Drop** berkas dan folder langsung ke baris/kartu folder atau ke *breadcrumb trail*.
   - **Multi-Pilih & Operasi Massal (Bulk Operations)**: Pilih banyak file/folder dengan bilah aksi melayang (*floating action bar*) untuk pemindahan massal (*batch move*) dan penghapusan massal (*batch trash*).
   - Dialog interaktif "Move to..." serta pintasan keyboard (`F2` untuk ganti nama, `Delete` untuk buang ke trash).
@@ -222,6 +237,11 @@ Developed and maintained by **Herliansyah**:
   - Bagikan berkas individual maupun seluruh **Folder Virtual** (`/s/:token`) dengan penjelajahan subfolder guest yang terisolasi (*jailed*) serta streaming dan unduh berkas di dalamnya.
   - Opsi masa kedaluwarsa fleksibel (default Selamanya, preset 90 hari / 1 tahun, serta pemilih tanggal kustom).
   - Proteksi password (bcrypt) opsional dan fitur **QR Code Generator** terintegrasi.
+- **🔄 Pembaruan Otomatis Mandiri (Self-Update) & Changelog**:
+  - Pengecekan versi rilis terbaru secara otomatis ke GitHub Releases dengan notifikasi banner di dashboard.
+  - Pembaruan 1-klik di Web UI dengan penggantian binary aman dan restart server instan (*graceful restart*).
+  - Perintah terminal `teledrive update` untuk memperbarui binary langsung di tempat.
+  - Modal interaktif **Penampil Changelog** ("What's New") langsung di dashboard untuk membaca catatan rilis.
 - **Safe Mode Kepatuhan ToS (Aman untuk Akun Utama)**:
   - Menggunakan telemetri perangkat resmi (`PC 64bit`, `Linux/x86_64`, `AppVersion 5.0.0`).
   - Antrean upload strictly 1 koneksi aktif pada satu waktu (meniru aplikasi resmi Telegram Desktop).
@@ -284,6 +304,12 @@ Buka browser di **`http://localhost:8080`** (Password admin: `admin123`).
 # Mengunggah file
 ./teledrive upload ./laporan.pdf
 
+# Mengunggah seluruh direktori/folder secara rekursif
+./teledrive upload ./folder_saya/
+
+# Mengunggah ke dalam folder virtual tertentu
+./teledrive upload ./laporan.pdf --folder <folder_id>
+
 # Menampilkan daftar file dan folder
 ./teledrive list
 
@@ -295,6 +321,9 @@ Buka browser di **`http://localhost:8080`** (Password admin: `admin123`).
 
 # Pulihkan database dari Telegram jika pindah server
 ./teledrive restore
+
+# Perbarui binary TeleDrive ke versi rilis GitHub terbaru (Self-Update)
+./teledrive update
 ```
 
 ---

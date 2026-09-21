@@ -113,3 +113,26 @@ This roadmap outlines the implementation phases for TeleDrive. In accordance wit
   - **Fase 4: Multi-Select & Bulk Operations**: Checkbox multi-select, floating bulk action bar, batch move modal (`POST /api/batch/move`), batch trash (`POST /api/batch/trash`), and keyboard shortcuts (`F2` rename, `Delete` trash).
 * **Runnable Verification**:
   - Full automated integration suite passing (`go test ./...`), verifying folder share guest isolation, batch move and trash endpoints, and boundary-enforced subfolder downloads.
+
+---
+
+## Milestone 9: Recursive Folder Upload, Conflict Resolution, In-App Auto-Update & Changelog Viewer (Completed)
+
+**Goal**: Deliver recursive folder tree uploads, robust upload conflict resolution strategies, automated release updates directly within the application and CLI, and a built-in changelog viewer.
+
+* **Key Deliverables**:
+  - **Fase 1: Recursive Folder Upload (Web & CLI)**:
+    - Web UI: Sidebar "Upload Folder" button using directory input and recursive drag & drop folder traversal using the FileSystem API (`webkitGetAsEntry`).
+    - CLI: Extended `teledrive upload <path>` to detect directories and recursively walk nested subdirectories (`filepath.WalkDir`), dynamically provisioning matching Virtual Folders.
+  - **Fase 2: Upload Conflict Resolution Modal**:
+    - Dialog presenting three conflict resolution strategies when an uploaded item collides with an existing file or Virtual Folder: **Replace**, **Keep Both** (with automatic numeric increment), and **Skip**.
+    - Batch resolution toggle ("Apply to all remaining conflicts").
+  - **Fase 3: In-App & CLI Self-Update**:
+    - `internal/update`: Automated update checker querying GitHub Releases API (`herliansyah/teledrive`) with platform binary matching, in-place binary executable substitution, and graceful server restart.
+    - Web UI: Update banner and 1-click update trigger via `POST /api/system/update/apply`.
+    - CLI: Standalone subcommand `teledrive update` to self-update the running binary.
+  - **Fase 4: In-App Changelog Viewer**:
+    - Embedded markdown-backed changelog endpoint `GET /api/changelog`.
+    - Interactive "What's New / Changelog" modal in Web UI accessible via sidebar version badge and Help dialog.
+* **Runnable Verification**:
+  - Automated integration test suite passing (`go test ./...`), including unit tests for version comparison and release asset resolution (`internal/update/updater_test.go`), server update API handlers (`internal/web/server_test.go`), and full standalone compilation (`go build ./cmd/teledrive`).
