@@ -621,6 +621,16 @@ func TestWebServer_ChangelogAndSystemUpdateAPI(t *testing.T) {
 	if content, ok := changelogData["content"].(string); !ok || content == "" {
 		t.Errorf("Expected non-empty changelog content")
 	}
+	// Verify embedded changelog in contentFS
+	embedded, err := contentFS.ReadFile("static/CHANGELOG.md")
+	if err != nil || len(embedded) == 0 {
+		t.Errorf("Expected static/CHANGELOG.md to be embedded in contentFS, got error: %v", err)
+	}
+	if rootContent, err := os.ReadFile("../../CHANGELOG.md"); err == nil && len(rootContent) > 0 {
+		if string(embedded) != string(rootContent) {
+			t.Errorf("Embedded static/CHANGELOG.md does not match root CHANGELOG.md")
+		}
+	}
 
 	// 2. Test System Update Check (unauthorized without auth)
 	req = httptest.NewRequest("GET", "/api/system/update", nil)

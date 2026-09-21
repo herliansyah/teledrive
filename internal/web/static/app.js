@@ -2031,8 +2031,9 @@ async function openChangelogModal() {
         const res = await fetch("/api/changelog");
         if (!res.ok) throw new Error("Could not load changelog");
         const data = await res.json();
-        if (verTag) verTag.innerText = `Installed: v${data.version || "1.5.0"}`;
-        body.innerHTML = renderMarkdown(data.content);
+        const ver = data.version || "1.5.0";
+        if (verTag) verTag.innerText = `Installed: v${ver}`;
+        body.innerHTML = renderChangelog(data.content, ver);
     } catch (err) {
         body.innerHTML = `<p style="color: var(--danger);">Failed to load changelog: ${escapeHtml(err.message)}</p>`;
     }
@@ -2043,27 +2044,134 @@ function closeChangelogModal() {
     if (modal) modal.style.display = "none";
 }
 
-function renderMarkdown(md) {
-    if (!md) return "";
-    let html = escapeHtml(md);
+function renderChangelog(text, currentVersion) {
+    if (!text) return "<p style='color: var(--text-muted);'>No changelog available.</p>";
 
-    // Headers
-    html = html.replace(/^### (.*$)/gim, '<h4 style="margin-top: 14px; margin-bottom: 6px; font-weight: 700; color: var(--text-primary);">$1</h4>');
-    html = html.replace(/^## (.*$)/gim, '<h3 style="margin-top: 20px; margin-bottom: 8px; font-weight: 700; color: var(--primary); border-bottom: 1px solid var(--border-subtle); padding-bottom: 4px;">$1</h3>');
-    html = html.replace(/^# (.*$)/gim, '<h2 style="margin-bottom: 12px; font-weight: 800; color: var(--text-primary);">$1</h2>');
+    const lines = text.split("\n");
+    const releases = [];
+    let currentRelease = null;
+    let currentSection = null;
 
-    // Bold & Code
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/`([^`]+)`/g, '<code style="background: var(--bg-surface-active); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.85em;">$1</code>');
+    for (let rawLine of lines) {
+        const line = rawLine.trimEnd();
+        const verMatch = line.match(/^##\s+\[?([0-9a-zA-Z.-]+)\]?(?:\s*-\s*(\d{4}-\d{2}-\d{2}))?/);
+        if (verMatch) {
+            currentRelease = {
+                version: verMatch[1],
+                date: verMatch[2] || "",
+                sections: []
+            };
+            releases.push(currentRelease);
+            currentSection = null;
+            continue;
+        }
 
-    // Lists
-    html = html.replace(/^\s*-\s+(.*$)/gim, '<li style="margin-left: 20px; margin-bottom: 4px;">$1</li>');
+        const secMatch = line.match(/^###\s+(.+)$/);
+        if (secMatch && currentRelease) {
+            currentSection = {
+                title: secMatch[1].trim(),
+                items: []
+            };
+            currentRelease.sections.push(currentSection);
+            continue;
+        }
 
-    // Links
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color: var(--primary); text-decoration: underline;">$1</a>');
+        if (currentSection) {
+            currentSection.items.push(rawLine);
+        }
+    }
 
-    // Paragraphs
-    html = html.replace(/\n\n/g, '<br><br>');
+    if (releases.length === 0) {
+        return `<div class="changelog-raw">${escapeHtml(text)}</div>`;
+    }
+
+    const curVerClean = (currentVersion || "").replace(/^v/, "").trim();
+
+    let out = '<div class="changelog-timeline">';
+    for (const rel of releases) {
+        const relVerClean = rel.version.replace(/^v/, "").trim();
+        const isCurrent = curVerClean && (relVerClean === curVerClean);
+
+        out += `<div class="changelog-card ${isCurrent ? "is-current" : ""}">`;
+        out += `  <div class="changelog-card-header">`;
+        out += `    <div class="changelog-ver-wrapper">`;
+        out += `      <span class="changelog-ver-badge">v${escapeHtml(relVerClean)}</span>`;
+        if (isCurrent) {
+            out += `      <span class="changelog-status-badge">Current Installed</span>`;
+        }
+        out += `    </div>`;
+        if (rel.date) {
+            out += `    <span class="changelog-date">${escapeHtml(rel.date)}</span>`;
+        }
+        out += `  </div>`;
+
+        out += `  <div class="changelog-card-body">`;
+        for (const sec of rel.sections) {
+            out += `    <div class="changelog-section">`;
+            out += `      <div class="changelog-section-header">${getCategoryBadge(sec.title)}</div>`;
+            out += `      ${renderChangelogItems(sec.items)}`;
+            out += `    </div>`;
+        }
+        out += `  </div>`;
+        out += `</div>`;
+    }
+    out += '</div>';
+    return out;
+}
+
+function getCategoryBadge(category) {
+    const cat = (category || "").toLowerCase();
+    let badgeClass = "badge-added";
+    if (cat.includes("change")) badgeClass = "badge-changed";
+    else if (cat.includes("fix")) badgeClass = "badge-fixed";
+    else if (cat.includes("remove") || cat.includes("deprecat")) badgeClass = "badge-removed";
+    else if (cat.includes("security")) badgeClass = "badge-security";
+    return `<span class="changelog-cat-badge ${badgeClass}">${escapeHtml(category)}</span>`;
+}
+
+function formatChangelogInline(str) {
+    let s = escapeHtml(str);
+    s = s.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/`([^`]+)`/g, '<code class="inline-code" style="background: var(--bg-surface-active, rgba(255,255,255,0.06)); padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono); font-size: 0.85em;">$1</code>');
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="changelog-link">$1</a>');
+    return s;
+}
+
+function renderChangelogItems(lines) {
+    let html = '<ul class="changelog-items">';
+    let inSubList = false;
+
+    for (let raw of lines) {
+        const trimmed = raw.trim();
+        if (!trimmed || trimmed === "---") continue;
+
+        const subMatch = raw.match(/^\s{2,4}-\s+(.+)$/);
+        const topMatch = raw.match(/^-\s+(.+)$/);
+
+        if (subMatch) {
+            if (!inSubList) {
+                html += '<ul class="changelog-subitems">';
+                inSubList = true;
+            }
+            html += `<li>${formatChangelogInline(subMatch[1])}</li>`;
+        } else if (topMatch) {
+            if (inSubList) {
+                html += '</ul>';
+                inSubList = false;
+            }
+            html += `<li class="changelog-item">${formatChangelogInline(topMatch[1])}</li>`;
+        } else {
+            if (inSubList) {
+                html += '</ul>';
+                inSubList = false;
+            }
+            html += `<p class="changelog-text">${formatChangelogInline(trimmed)}</p>`;
+        }
+    }
+    if (inSubList) {
+        html += '</ul>';
+    }
+    html += '</ul>';
     return html;
 }
 
