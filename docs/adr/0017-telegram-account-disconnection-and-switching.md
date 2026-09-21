@@ -1,0 +1,3 @@
+# 17. Telegram Account Disconnection and Account Switching Lifecycle
+
+We decided to provide explicit controls for revoking Telegram MTProto sessions and switching accounts, while clearly decoupling Web Session Termination from Telegram Session Revocation. Multi-account pooling and simultaneous multi-tenancy are deferred (on hold) in favor of a clean, robust single-account lifecycle. Telegram disconnects gracefully invoke MTProto `auth.logOut` with mandatory local credential wipe fallback, preserving virtual files and folders by default to prevent accidental data loss, with an optional `--clean` flag for full instance purges. Web dashboards display connection status with disconnect actions and disconnected warning banners.

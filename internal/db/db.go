@@ -124,3 +124,27 @@ func (d *DB) SetSetting(key, val string) error {
 	`, key, val)
 	return err
 }
+
+// DeleteSetting removes a setting key-value pair from the database.
+func (d *DB) DeleteSetting(key string) error {
+	_, err := d.Exec("DELETE FROM settings WHERE key = ?", key)
+	return err
+}
+
+// PurgeAllData deletes all virtual folders, files, upload sessions, share links, and Telegram session settings.
+func (d *DB) PurgeAllData() error {
+	queries := []string{
+		"DELETE FROM share_links",
+		"DELETE FROM upload_sessions",
+		"DELETE FROM files",
+		"DELETE FROM folders",
+		"DELETE FROM settings WHERE key IN ('telegram_session', 'storage_channel_id', 'storage_channel_hash')",
+	}
+	for _, q := range queries {
+		if _, err := d.Exec(q); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+

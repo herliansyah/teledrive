@@ -31,7 +31,9 @@ func main() {
 		fmt.Println("Licensed under the MIT License")
 		fmt.Println("Repository: https://github.com/herliansyah/teledrive")
 	case "login":
-		runLogin(cfg)
+		runLogin(cfg, os.Args[2:])
+	case "logout":
+		runLogout(cfg, os.Args[2:])
 	case "server":
 		runServer(cfg)
 	case "upload":
@@ -60,7 +62,8 @@ func printUsage() {
 	fmt.Println(`Usage: teledrive <command> [arguments]
 
 Commands:
-  login     Authenticate your Telegram account via MTProto CLI wizard
+  login     Authenticate Telegram account via MTProto wizard (use --force to switch account)
+  logout    Disconnect and revoke current Telegram MTProto session (use --clean to wipe local data)
   server    Start the web dashboard and streaming server
   upload    Upload a file or folder to TeleDrive storage (e.g. teledrive upload ./folder)
   download  Download a file from TeleDrive (e.g. teledrive download <file_id>)
@@ -70,6 +73,7 @@ Commands:
   update    Check and update TeleDrive to the latest version
   version   Show TeleDrive version`)
 }
+
 
 func openDatabase(cfg *app.Config) *db.DB {
 	database, err := db.Open(cfg.DBPath)

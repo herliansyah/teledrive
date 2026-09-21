@@ -92,3 +92,28 @@ func (s *Server) handleApplyUpdate(w http.ResponseWriter, r *http.Request) {
 		_ = update.RestartServer()
 	}()
 }
+
+func (s *Server) handleTelegramStatus(w http.ResponseWriter, r *http.Request) {
+	info, err := s.tg.GetAccountInfo(r.Context())
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil || info == nil {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"authorized": false,
+		})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(info)
+}
+
+func (s *Server) handleTelegramDisconnect(w http.ResponseWriter, r *http.Request) {
+	if err := s.tg.Disconnect(r.Context()); err != nil {
+		http.Error(w, "Failed to disconnect Telegram: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success": true,
+		"message": "Telegram account disconnected successfully",
+	})
+}
+

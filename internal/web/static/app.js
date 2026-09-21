@@ -74,7 +74,9 @@ document.addEventListener("DOMContentLoaded", () => {
     loadDriveContent();
     updateViewButtons();
     checkSystemUpdate();
+    loadTelegramStatus();
 });
+
 
 // --- Theme Management ---
 function initTheme() {
@@ -2274,3 +2276,77 @@ async function applyUpdate() {
         showToast("Update failed: " + err.message, "error");
     }
 }
+
+// --- Telegram MTProto Session & Account Status ---
+async function loadTelegramStatus() {
+    const dot = document.getElementById("tg-status-dot");
+    const title = document.getElementById("tg-status-title");
+    const accountLine = document.getElementById("tg-account-line");
+    const channelLine = document.getElementById("tg-channel-line");
+    const disconnectBox = document.getElementById("tg-disconnect-container");
+    const banner = document.getElementById("telegram-disconnected-banner");
+
+    if (!dot || !title) return;
+
+    try {
+        const res = await fetch("/api/system/telegram");
+        if (!res.ok) throw new Error("Failed to query Telegram status");
+        const data = await res.json();
+
+        if (data.authorized) {
+            dot.style.background = "var(--success, #22c55e)";
+            dot.style.boxShadow = "0 0 8px rgba(34, 197, 94, 0.4)";
+            title.innerText = "MTProto Online";
+
+            let userStr = "Connected";
+            if (data.phone) {
+                userStr = "+" + data.phone;
+            } else if (data.username) {
+                userStr = "@" + data.username;
+            } else if (data.first_name) {
+                userStr = data.first_name;
+            }
+            if (accountLine) accountLine.innerHTML = `<strong>Account:</strong> ${escapeHtml(userStr)}`;
+            if (channelLine) channelLine.innerHTML = `<strong>Channel:</strong> ${data.channel_id ? "ID " + data.channel_id : "Connected"}`;
+            if (disconnectBox) disconnectBox.style.display = "block";
+            if (banner) banner.style.display = "none";
+        } else {
+            dot.style.background = "var(--danger, #ef4444)";
+            dot.style.boxShadow = "0 0 8px rgba(239, 68, 68, 0.4)";
+            title.innerText = "Telegram Disconnected";
+            if (accountLine) accountLine.innerHTML = `<strong>Account:</strong> Unlinked`;
+            if (channelLine) channelLine.innerHTML = `<strong>Channel:</strong> None`;
+            if (disconnectBox) disconnectBox.style.display = "none";
+            if (banner) banner.style.display = "flex";
+        }
+    } catch (_) {
+        dot.style.background = "var(--warning, #f59e0b)";
+        title.innerText = "Status Unavailable";
+    }
+}
+
+async function confirmDisconnectTelegram() {
+    const confirmed = confirm(
+        "Are you sure you want to disconnect Telegram from TeleDrive?\n\n" +
+        "• The MTProto session will be revoked.\n" +
+        "• Virtual files and folders in SQLite will be preserved.\n" +
+        "• To resume file uploads or downloads, you will need to run 'teledrive login' in your terminal."
+    );
+    if (!confirmed) return;
+
+    try {
+        const res = await fetch("/api/system/telegram/disconnect", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+        });
+        if (!res.ok) {
+            const err = await res.text();
+            throw new Error(err || "Failed to disconnect Telegram");
+        }
+        showToast("Telegram account disconnected successfully.", "info");
+        await loadTelegramStatus();
+    } catch (err) {
+        showToast("Disconnect error: " + err.message, "error");
+    }
+}
+

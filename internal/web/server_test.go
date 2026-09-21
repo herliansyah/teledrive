@@ -17,7 +17,9 @@ import (
 	"teledrive/internal/app"
 	"teledrive/internal/crypto"
 	"teledrive/internal/db"
+	"teledrive/internal/telegram"
 )
+
 
 func TestWebServer_AuthAndFolderAPI(t *testing.T) {
 	tempDir := t.TempDir()
@@ -615,9 +617,10 @@ func TestWebServer_ChangelogAndSystemUpdateAPI(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&changelogData); err != nil {
 		t.Fatalf("Failed to parse changelog response: %v", err)
 	}
-	if changelogData["version"] != "1.5.0" {
-		t.Errorf("Expected version 1.5.0, got %v", changelogData["version"])
+	if changelogData["version"] != "1.6.0" {
+		t.Errorf("Expected version 1.6.0, got %v", changelogData["version"])
 	}
+
 	if content, ok := changelogData["content"].(string); !ok || content == "" {
 		t.Errorf("Expected non-empty changelog content")
 	}
@@ -653,6 +656,76 @@ func TestWebServer_ChangelogAndSystemUpdateAPI(t *testing.T) {
 		t.Errorf("Expected application/json content type, got %s", rec.Header().Get("Content-Type"))
 	}
 }
+
+func TestTelegramSessionStatusAndDisconnect(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open test database: %v", err)
+	}
+	defer database.Close()
+
+	cfg := &app.Config{
+		Port:          "8080",
+		AdminPassword: "testpassword",
+		SecretKey:     "test-secret-key-at-least-32-bytes-long",
+	}
+
+	tgMgr := telegram.NewClientManager(database, 12345, "apphash", cfg.SecretKey)
+	server, err := NewServer(cfg, database, tgMgr)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	authCookie := &http.Cookie{
+		Name:  "teledrive_session",
+		Value: crypto.GenerateSessionToken(cfg.SecretKey, 1*time.Hour),
+	}
+
+	// 1. Unauthenticated request to /api/system/telegram should fail
+	req := httptest.NewRequest("GET", "/api/system/telegram", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("Expected 401 Unauthorized, got %d", rec.Code)
+	}
+
+	// 2. Authenticated request to /api/system/telegram
+	req = httptest.NewRequest("GET", "/api/system/telegram", nil)
+	req.AddCookie(authCookie)
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK, got %d", rec.Code)
+	}
+
+	var status map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&status); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+	if authorized, ok := status["authorized"].(bool); !ok || authorized {
+		t.Fatalf("Expected authorized to be false in test environment, got %v", status["authorized"])
+	}
+
+	// 3. Test Disconnect endpoint
+	req = httptest.NewRequest("POST", "/api/system/telegram/disconnect", nil)
+	req.AddCookie(authCookie)
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for disconnect, got %d", rec.Code)
+	}
+
+	var disconnectRes map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&disconnectRes); err != nil {
+		t.Fatalf("Failed to decode disconnect response: %v", err)
+	}
+	if success, ok := disconnectRes["success"].(bool); !ok || !success {
+		t.Fatalf("Expected success to be true, got %v", disconnectRes["success"])
+	}
+}
+
 
 
 

@@ -116,4 +116,17 @@ _Avoid_: OTA update, app patch, live upgrade
 The in-app interactive modal displaying structured release history, version tags, and categorized change items directly from embedded documentation.
 _Avoid_: Release log, update popup, what's new dialog
 
+**Telegram Session Revocation**:
+The explicit process of invalidating the active MTProto session on Telegram servers and deleting stored session credentials from TeleDrive.
+_Avoid_: Telegram logout, unpairing, session purge
+
+**Web Session Termination**:
+The invalidation of the local administrator HTTP cookie session without affecting the background Telegram MTProto connection.
+_Avoid_: Logout, disconnect
+
+**Account Switching**:
+The procedure of unlinking an active Telegram account and re-authenticating with a different account to bind its respective Storage Channel.
+_Avoid_: Multi-login, account swap, user toggle
+
+
 

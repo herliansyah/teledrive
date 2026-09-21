@@ -6,7 +6,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.0] - 2026-09-21
+
+### Added
+- **Telegram MTProto Session Revocation & Disconnection**:
+  - Terminal command `teledrive logout` to gracefully revoke MTProto session on Telegram and clear local session keys while preserving virtual filesystem metadata.
+  - Optional flag `teledrive logout --clean` for full instance purges (wipes session credentials and all SQLite virtual files and folders).
+  - API endpoint `POST /api/system/telegram/disconnect` and Web UI "Disconnect Telegram" action with confirmation modal.
+  - Dynamic MTProto connection status widget in Web sidebar with live account information (phone number / username) and channel ID.
+  - Warning banner notification in web dashboard when TeleDrive is unlinked from Telegram.
+- **Account Switching & Re-Authentication**:
+  - Terminal command `teledrive login --force` (or `-f`) to switch to a different Telegram account without manual logout.
+  - Interactive account switch prompt in `teledrive login` when an active authenticated session already exists.
+- **Architecture Decision Record (ADR 0017)**:
+  - Documented Telegram account disconnection, account switching lifecycle, and rationale for deferring multi-account pooling.
+
+### Changed
+- **Decoupled Web Sign Out from Telegram Disconnect**:
+  - Clarified header action as "Sign Out (Web)" for administrator HTTP cookie termination, keeping the background MTProto bridge intact.
+- **Documentation & User Guide**:
+  - Added Step 10 and dedicated FAQ sections in `docs/USER_GUIDE.md` (both English and Indonesian) for logout, account switching, and multi-account status.
+  - Updated `README.md` and `CONTEXT.md`.
+
+---
+
 ## [1.5.0] - 2026-09-21
+
 
 ### Added
 - **Recursive Folder Upload (Web & CLI)**:

@@ -54,13 +54,33 @@ func (ConsoleAuthenticator) SignUp(ctx context.Context) (auth.UserInfo, error) {
 }
 
 // AuthenticateInteractive performs terminal-based authentication and initiates channel onboarding.
-func (m *ClientManager) AuthenticateInteractive(ctx context.Context, reader *bufio.Reader, destDBPath string) error {
+func (m *ClientManager) AuthenticateInteractive(ctx context.Context, reader *bufio.Reader, destDBPath string, forceReauth bool) error {
 	flow := auth.NewFlow(ConsoleAuthenticator{}, auth.SendCodeOptions{})
 
 	status, err := m.client.Auth().Status(ctx)
 	if err == nil && status.Authorized {
-		fmt.Println("✓ Account is already authenticated in database session.")
-		return m.OnboardStorageChannelInteractive(ctx, reader, destDBPath)
+		if forceReauth {
+			fmt.Println("Forcing account re-authentication. Revoking previous session...")
+			_ = m.Disconnect(ctx)
+		} else {
+			accountLabel := "current account"
+			if status.User != nil {
+				if status.User.Phone != "" {
+					accountLabel = "+" + status.User.Phone
+				} else if status.User.Username != "" {
+					accountLabel = "@" + status.User.Username
+				}
+			}
+			fmt.Printf("✓ Account is already authenticated in database session (%s).\n", accountLabel)
+			fmt.Print("Do you want to switch to a different Telegram account? [y/N]: ")
+			ans, _ := reader.ReadString('\n')
+			if trimmed := strings.ToLower(strings.TrimSpace(ans)); trimmed == "y" || trimmed == "yes" {
+				fmt.Println("Disconnecting current account...")
+				_ = m.Disconnect(ctx)
+			} else {
+				return m.OnboardStorageChannelInteractive(ctx, reader, destDBPath)
+			}
+		}
 	}
 
 	if err := m.client.Auth().IfNecessary(ctx, flow); err != nil {
@@ -70,6 +90,7 @@ func (m *ClientManager) AuthenticateInteractive(ctx context.Context, reader *buf
 	fmt.Println("✓ MTProto authentication successful. Session encrypted and stored in SQLite.")
 	return m.OnboardStorageChannelInteractive(ctx, reader, destDBPath)
 }
+
 
 // EnsureStorageChannel verifies, discovers, or creates the private Storage Channel "TeleDrive Vault".
 func (m *ClientManager) EnsureStorageChannel(ctx context.Context) error {

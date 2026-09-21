@@ -322,9 +322,23 @@ Buka browser di **`http://localhost:8080`** (Password admin: `admin123`).
 # Pulihkan database dari Telegram jika pindah server
 ./teledrive restore
 
+# Putuskan hubungan sesi Telegram (Logout MTProto, database tetap aman)
+./teledrive logout
+
+# Putuskan hubungan Telegram DAN bersihkan seluruh database lokal (Fresh Start)
+./teledrive logout --clean
+
+# Ganti akun Telegram / paksa login ulang
+./teledrive login --force
+
 # Perbarui binary TeleDrive ke versi rilis GitHub terbaru (Self-Update)
 ./teledrive update
 ```
+
+> 🔐 **Catatan Sesi Web vs Sesi Telegram**:
+> - **Sign Out (Web)** di dashboard browser hanya mengakhiri sesi cookie admin web lokal, tanpa memutus koneksi server ke Telegram.
+> - **Disconnect Telegram** (di tombol status sidebar web atau via `./teledrive logout`) mencabut otorisasi MTProto di server Telegram dan menghapus kredensial sesi lokal. Metadata file lokal tetap tersimpan secara aman kecuali Anda menambahkan flag `--clean`.
+
 
 ---
 

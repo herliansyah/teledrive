@@ -204,9 +204,22 @@ TeleDrive includes zero-effort lifecycle updates and release tracking:
    ```
 4. **Interactive Changelog Viewer**: Click the version badge in the bottom-left sidebar or open the Help modal to view release notes, new features, and upgrade history rendered directly from `CHANGELOG.md`.
 
+#### Step 10: Disconnecting Telegram & Switching Accounts
+TeleDrive provides clear, independent controls for managing web administrator access versus the underlying Telegram MTProto link:
+1. **Web Session Termination (Sign Out)**: Clicking **Sign Out (Web)** in the top-right header invalidates your browser's administrator cookie (`teledrive_session`). The backend server remains running and securely linked to Telegram.
+2. **Telegram MTProto Disconnection**:
+   - **Via Web Dashboard**: In the sidebar status widget, click **Disconnect Telegram**. A confirmation dialog appears. Once confirmed, TeleDrive revokes the MTProto session from Telegram servers and clears local session credentials. A prominent warning banner alerts you that Telegram is disconnected.
+   - **Via Terminal (CLI)**: Run `./teledrive logout` to gracefully revoke the session while preserving your virtual filesystem metadata.
+   - **Fresh Start Wipe**: To revoke Telegram AND wipe all local virtual files, folders, and settings from SQLite, run `./teledrive logout --clean`.
+3. **Switching Accounts**:
+   - Run `./teledrive login --force` (or `./teledrive login -f`) to directly trigger re-authentication with a new phone number.
+   - If an account is already paired and you run `./teledrive login`, TeleDrive displays the current connected user and prompts: `Do you want to switch to a different Telegram account? [y/N]`. Answering `y` safely unlinks the old account and initiates login for the new account.
+   - During channel onboarding, the new account discovers or creates its own `TeleDrive Vault` storage channel.
+
 ---
 
 ### 5. Security & Telegram Safe Mode
+
 
 TeleDrive is engineered with strict safeguards to protect your primary Telegram account from bans or restrictions:
 
@@ -251,7 +264,20 @@ export TELEDRIVE_ADMIN_PASSWORD="my_strong_password"
 ./teledrive server
 ```
 
+#### Q: What is the difference between "Sign Out" and "Disconnect Telegram"?
+- **Sign Out (Web)** in the top navigation header terminates your browser's HTTP session cookie. The TeleDrive server continues running in the background and keeps its active MTProto connection to Telegram.
+- **Disconnect Telegram** (via the sidebar status widget or `./teledrive logout`) revokes the MTProto cryptographic session on Telegram servers and purges the local stored credentials. When disconnected, files cannot be uploaded or downloaded until an account is re-paired.
+
+#### Q: How do I switch to a different Telegram account?
+You can switch accounts in two ways:
+1. Run `./teledrive login --force` to immediately launch the login wizard for the new phone number.
+2. Or run `./teledrive logout`, followed by `./teledrive login`.
+
+#### Q: Does TeleDrive support multiple simultaneous Telegram accounts?
+Multi-account pooling (striping files across multiple accounts simultaneously) is intentionally deferred to comply strictly with Telegram Terms of Service and prevent account restrictions. For multi-account requirements, the recommended pattern is running separate TeleDrive instances with their own configuration and SQLite database files (e.g., via `TELEDRIVE_DB_PATH=./work.db ./teledrive server`).
+
 ---
+
 
 <a name="bahasa-indonesia"></a>
 ## 🇮🇩 Bahasa Indonesia: Panduan Lengkap Pengguna
@@ -452,9 +478,22 @@ TeleDrive mendukung pembaruan versi mandiri tanpa repot mengunduh atau mengompil
    ```
 4. **Penampil Changelog Terintegrasi**: Klik badge nomor versi di sidebar kiri bawah atau buka dialog Bantuan untuk membaca catatan rilis, fitur baru, dan riwayat perbaikan yang diambil langsung dari `CHANGELOG.md`.
 
+#### Langkah 10: Memutuskan Hubungan Telegram & Ganti Akun
+TeleDrive memisahkan secara tegas antara sesi akses web administrator dan koneksi sesi MTProto ke Telegram:
+1. **Sign Out Sesi Web**: Menekan tombol **Sign Out (Web)** di kanan atas dashboard hanya menghapus cookie sesi browser admin (`teledrive_session`). Server TeleDrive tetap aktif di background dan tetap terhubung ke Telegram.
+2. **Memutuskan Hubungan Telegram (Disconnect Telegram)**:
+   - **Melalui Dashboard Web**: Pada widget status koneksi di sidebar kiri bawah, klik tombol **Disconnect Telegram**. Dialog konfirmasi akan muncul. Setelah dikonfirmasi, TeleDrive akan memanggil API `auth.logOut` ke server Telegram dan menghapus kredensial sesi lokal. Banner peringatan berwarna merah akan muncul menandakan status terputus.
+   - **Melalui Terminal (CLI)**: Jalankan `./teledrive logout`. Perintah ini memutus sesi MTProto dan menghapus sesi lokal, namun database metadata virtual file dan folder Anda **tetap tersimpan aman**.
+   - **Pembersihan Total (Fresh Start)**: Jika ingin memutus Telegram sekaligus menghapus seluruh database virtual file dan folder di server, jalankan `./teledrive logout --clean`.
+3. **Berganti Akun Telegram (Account Switching)**:
+   - Jalankan `./teledrive login --force` (atau `-f`) untuk langsung memicu wizard login nomor Telegram baru.
+   - Jika Anda menjalankan `./teledrive login` saat akun lama masih tersambung, TeleDrive akan menampilkan identitas akun aktif dan bertanya: `Do you want to switch to a different Telegram account? [y/N]`. Jawab `y` untuk berganti akun.
+   - Akun baru akan otomatis mendeteksi channel `TeleDrive Vault` miliknya atau membuat channel baru secara otomatis.
+
 ---
 
 ### 5. Keamanan & Kepatuhan Safe Mode
+
 
 TeleDrive dirancang khusus dengan sistem pertahanan berlapis agar akun utama Telegram Anda tetap aman dan terbebas dari sanksi/banned:
 
@@ -498,3 +537,16 @@ Cukup atur variabel lingkungan `TELEDRIVE_ADMIN_PASSWORD` sebelum menjalankan se
 export TELEDRIVE_ADMIN_PASSWORD="password_baru_anda"
 ./teledrive server
 ```
+
+#### T: Apa perbedaan antara "Sign Out" di Web dan "Disconnect Telegram"?
+- **Sign Out (Web)** di navigasi atas hanya menghapus cookie sesi browser administrator. Server TeleDrive tetap menyala dan tetap terhubung ke akun Telegram.
+- **Disconnect Telegram** (melalui sidebar status web atau `./teledrive logout`) secara resmi mencabut otorisasi sesi MTProto di server Telegram dan menghapus kredensial sesi lokal. Saat terputus, unduh dan unggah file ditangguhkan sampai akun dihubungkan kembali.
+
+#### T: Bagaimana cara memutuskan koneksi atau berganti ke akun Telegram lain?
+Ada dua cara mudah:
+1. Jalankan `./teledrive login --force` untuk langsung memasukkan nomor telepon baru.
+2. Atau jalankan `./teledrive logout`, kemudian jalankan `./teledrive login`.
+
+#### T: Bagaimana dukungan untuk Multi-Akun Telegram secara bersamaan?
+Fitur multi-akun pooling (menggabungkan kapasitas beberapa akun secara paralel) saat ini **ditahan (on hold)** demi mematuhi ketentuan layanan (ToS) resmi Telegram dan menghindari risiko pembatasan akun. Jika Anda membutuhkan penyimpanan terpisah untuk beberapa akun, cara terbaik adalah menjalankan instance TeleDrive terpisah dengan file database SQLite masing-masing (contoh: `TELEDRIVE_DB_PATH=./kantor.db ./teledrive server`).
+

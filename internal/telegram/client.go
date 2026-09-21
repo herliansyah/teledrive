@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/tg"
@@ -100,3 +101,74 @@ func (m *ClientManager) StorageChannel() (int64, int64, error) {
 	}
 	return m.channelID, m.accessHash, nil
 }
+
+// AccountInfo holds metadata about the connected Telegram user and active storage channel.
+type AccountInfo struct {
+	Authorized bool   `json:"authorized"`
+	ID         int64  `json:"id,omitempty"`
+	FirstName  string `json:"first_name,omitempty"`
+	LastName   string `json:"last_name,omitempty"`
+	Username   string `json:"username,omitempty"`
+	Phone      string `json:"phone,omitempty"`
+	ChannelID  int64  `json:"channel_id,omitempty"`
+}
+
+// GetAccountInfo returns the authorization status and user profile of the current Telegram session.
+func (m *ClientManager) GetAccountInfo(ctx context.Context) (*AccountInfo, error) {
+	sessionStr, err := m.db.GetSetting("telegram_session")
+	if err != nil || sessionStr == "" {
+		return &AccountInfo{Authorized: false}, nil
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	status, err := m.client.Auth().Status(timeoutCtx)
+	if err != nil || !status.Authorized {
+		return &AccountInfo{Authorized: false}, nil
+	}
+
+	info := &AccountInfo{
+		Authorized: true,
+	}
+	if status.User != nil {
+		info.ID = status.User.ID
+		info.FirstName = status.User.FirstName
+		info.LastName = status.User.LastName
+		info.Username = status.User.Username
+		info.Phone = status.User.Phone
+	}
+
+	m.mu.Lock()
+	info.ChannelID = m.channelID
+	m.mu.Unlock()
+
+	return info, nil
+}
+
+// Disconnect revokes the active MTProto session on Telegram and clears local session credentials.
+func (m *ClientManager) Disconnect(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// 1. Attempt graceful remote MTProto session revocation if session exists
+	if sessionStr, err := m.db.GetSetting("telegram_session"); err == nil && sessionStr != "" {
+		timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		if status, err := m.client.Auth().Status(timeoutCtx); err == nil && status.Authorized {
+			_, _ = m.api.AuthLogOut(timeoutCtx)
+		}
+	}
+
+	// 2. Wipe local session and storage channel settings from SQLite
+	_ = m.db.DeleteSetting("telegram_session")
+	_ = m.db.DeleteSetting("storage_channel_id")
+	_ = m.db.DeleteSetting("storage_channel_hash")
+
+	// 3. Clear in-memory active channel state
+	m.channelID = 0
+	m.accessHash = 0
+	return nil
+}
+
+
