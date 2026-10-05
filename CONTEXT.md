@@ -128,5 +128,9 @@ _Avoid_: Logout, disconnect
 The procedure of unlinking an active Telegram account and re-authenticating with a different account to bind its respective Storage Channel.
 _Avoid_: Multi-login, account swap, user toggle
 
+**Project Sponsorship**:
+A voluntary financial contribution mechanism enabling users to support the ongoing open-source maintenance of TeleDrive through external sponsorship platforms (e.g., Saweria).
+_Avoid_: Donation popup, tip jar, paywall, saweran, donation banner
+
 
 

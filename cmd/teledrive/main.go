@@ -28,6 +28,7 @@ func main() {
 	case "version", "--version", "-v":
 		fmt.Printf("TeleDrive v%s\n", app.Version)
 		fmt.Println("Created by Herliansyah (https://github.com/herliansyah)")
+		fmt.Println("Support & Sponsorship: https://saweria.co/herliansyah26")
 		fmt.Println("Licensed under the MIT License")
 		fmt.Println("Repository: https://github.com/herliansyah/teledrive")
 	case "login":
@@ -71,7 +72,9 @@ Commands:
   backup    Export SQLite snapshot and upload to Telegram Storage Channel
   restore   Restore SQLite database from Telegram Storage Channel
   update    Check and update TeleDrive to the latest version
-  version   Show TeleDrive version`)
+  version   Show TeleDrive version
+
+Support development: https://saweria.co/herliansyah26`)
 }
 
 
