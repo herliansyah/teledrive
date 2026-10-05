@@ -13,6 +13,7 @@
 [![GitHub](https://img.shields.io/badge/GitHub-herliansyah%2Fteledrive-181717?style=flat&logo=github)](https://github.com/herliansyah/teledrive)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)](https://github.com/herliansyah/teledrive)
 [![Pure Go](https://img.shields.io/badge/CGO-Zero%20(Pure%20Go)-orange)](https://modernc.org/sqlite)
+[![Support](https://img.shields.io/badge/Support-Saweria-faad14?style=flat&logo=coffeescript)](https://saweria.co/herliansyah26)
 
 [English](#english) &bull; [Bahasa Indonesia](#bahasa-indonesia)
 
@@ -350,6 +351,20 @@ Buka browser di **`http://localhost:8080`** (Password admin: `admin123`).
 - [SECURITY.md](SECURITY.md) — Panduan keamanan, enkripsi session, dan mitigasi banned Telegram.
 - [MILESTONES.md](MILESTONES.md) — Rincian tahapan pengembangan dan verifikasi.
 - [docs/adr/](docs/adr/) — Arsip Catatan Keputusan Arsitektur (*Architectural Decision Records*).
+
+---
+
+### ☕ Dukung Pengembangan / Support the Project
+
+TeleDrive dikembangkan secara independen dan open-source (100% gratis, tanpa paywall atau iklan). Jika TeleDrive bermanfaat untuk produktivitas atau penyimpanan awan pribadi Anda, pertimbangkan untuk mendukung biaya pemeliharaan server pengujian dan pengembangan fitur selanjutnya melalui Saweria:
+
+<div align="center">
+
+[![Dukung via Saweria](https://img.shields.io/badge/Dukung%20via-Saweria-faad14?style=for-the-badge&logo=coffeescript&logoColor=black)](https://saweria.co/herliansyah26)
+
+*If TeleDrive brings value to your workflow or personal cloud storage, consider supporting its maintenance and future developments via [Saweria](https://saweria.co/herliansyah26).*
+
+</div>
 
 ---
 
